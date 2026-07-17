@@ -1,0 +1,92 @@
+[project]
+name = "apiems"
+version = "0.1.0"
+description = "Residential Energy Management System (EMS) backend — FastAPI + InfluxDB + MQTT"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiomqtt>=2.5.1",
+    "cachetools>=7.1.4",
+    "fastapi>=0.139.2",
+    "influxdb-client[async]>=1.50.0",
+    "orjson>=3.11.9",
+    "polars>=1.42.1",
+    "pydantic-settings>=2.14.2",
+    "pyjwt>=2.13.0",
+    "structlog>=26.1.0",
+    "uvicorn[standard]>=0.51.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "httpx2>=2.7.0",
+    "pre-commit>=4.6.0",
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.22",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff — lint + format
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "ASYNC", # flake8-async
+    "DTZ",   # flake8-datetimez (naive datetimes prohibidos)
+    "RUF",   # ruff-specific
+    "PL",    # pylint
+    "TID",   # flake8-tidy-imports
+]
+ignore = [
+    "PLR0913", # too many arguments — DI de FastAPI los necesita
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "ASYNC240"] # magic values OK en asserts; I/O sync puntual en tests OK
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ---------------------------------------------------------------------------
+# Pyright — type checking
+# ---------------------------------------------------------------------------
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+include = ["app", "tests"]
+venvPath = "."
+venv = ".venv"
+
+[[tool.pyright.executionEnvironments]]
+# httpx/TestClient no exponen tipos estrictos; relajar solo en tests
+root = "tests"
+extraPaths = ["."]
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers"
+filterwarnings = ["error"]

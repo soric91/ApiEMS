@@ -1,0 +1,32 @@
+# Topología por defecto: backend en el MISMO host donde corren Mosquitto
+# e InfluxDB (p. ej. el gateway IoT). network_mode: host evita el problema
+# de que "localhost" dentro del contenedor apunte al contenedor y no al host.
+#
+# Para correr en máquinas separadas, ver la sección "Docker" del README —
+# ahí se documenta el compose alternativo con red bridge + IPs remotas.
+
+services:
+  api:
+    build: .
+    image: apiems-backend:latest
+    container_name: apiems-api
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      # En host networking, MQTT_HOST/INFLUX_URL usan localhost porque el
+      # contenedor comparte la pila de red del host directamente.
+      MQTT_HOST: ${MQTT_HOST:-localhost}
+      INFLUX_URL: ${INFLUX_URL:-http://localhost:8086}
+    volumes:
+      # data/tariffs.json se edita en caliente vía PUT /api/v1/tariff — sin
+      # este volumen, cada `docker compose up --build` lo resetea al valor
+      # horneado en la imagen (mismo problema que ya tuvimos con el código).
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

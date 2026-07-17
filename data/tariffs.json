@@ -1,0 +1,36 @@
+{
+  "excedente_cop_kwh": 114.34,
+  "umbral_cs_kwh": 130.0,
+  "periods": [
+    {
+      "month": "2026-01",
+      "cu_cop_kwh": 859.19,
+      "cargo_fijo_cop": 9090.0
+    },
+    {
+      "month": "2026-02",
+      "cu_cop_kwh": 801.24,
+      "cargo_fijo_cop": 9197.0
+    },
+    {
+      "month": "2026-03",
+      "cu_cop_kwh": 864.69,
+      "cargo_fijo_cop": 9296.0
+    },
+    {
+      "month": "2026-04",
+      "cu_cop_kwh": 864.06,
+      "cargo_fijo_cop": 9368.0
+    },
+    {
+      "month": "2026-05",
+      "cu_cop_kwh": 876.97,
+      "cargo_fijo_cop": 9442.0
+    },
+    {
+      "month": "2026-06",
+      "cu_cop_kwh": 902.28,
+      "cargo_fijo_cop": 9486.0
+    }
+  ]
+}

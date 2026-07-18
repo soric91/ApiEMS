@@ -89,8 +89,7 @@ def _make_mqtt_handler(
         await ws_manager.broadcast(reading)
 
         alert = await check_hourly(influx_repo, reading, settings)
-        if alert is not None:
-            alerts_state.add(alert)
+        if alert is not None and alerts_state.add_if_due(alert):
             await ws_manager.broadcast_alert(alert)
 
     return handler

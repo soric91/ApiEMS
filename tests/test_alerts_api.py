@@ -40,7 +40,7 @@ def test_alerts_requires_auth(client: TestClient) -> None:
 def test_alerts_returns_recent_from_state(client: TestClient, app: FastAPI) -> None:
     headers = _login(client)
     state: AlertsState = app.state.alerts_state
-    state.add(_alert())
+    state.add_if_due(_alert())
 
     response = client.get("/api/v1/alerts", headers=headers)
     assert response.status_code == 200

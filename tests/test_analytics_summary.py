@@ -26,11 +26,13 @@ def _hourly_points() -> list[TimeSeriesPoint]:
 
 
 async def test_analytics_summary_peak_hours() -> None:
+    """Puntos en hora UTC 10/13/20 -> Bogotá (UTC-5) 5/8/15. Confirma que el
+    perfil horario agrupa por hora LOCAL, no UTC."""
     repo = FakeInfluxRepository()
     repo.instant_series_points = _hourly_points()
     report = await analytics_summary(repo, _settings(), START, STOP, None)
-    assert report.peak_consumption_hour == 10
-    assert report.peak_export_hour == 13
+    assert report.peak_consumption_hour == 5
+    assert report.peak_export_hour == 8
 
 
 async def test_analytics_summary_no_export_hours_peak_export_none() -> None:
@@ -39,7 +41,7 @@ async def test_analytics_summary_no_export_hours_peak_export_none() -> None:
         TimeSeriesPoint(time=datetime(2026, 6, 15, 10, tzinfo=UTC), value=800.0),
     ]
     report = await analytics_summary(repo, _settings(), START, STOP, None)
-    assert report.peak_consumption_hour == 10
+    assert report.peak_consumption_hour == 5
     assert report.peak_export_hour is None
 
 

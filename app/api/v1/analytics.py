@@ -113,7 +113,7 @@ async def analytics_daily_profile(
     """Curva típica de potencia neta por hora del día (0-23), promediando
     todos los días del rango solicitado (por defecto: hoy)."""
     start, stop = _resolve_range(settings, from_, to)
-    return ApiResponse(data=await daily_profile(repo, start, stop, device_id))
+    return ApiResponse(data=await daily_profile(repo, start, stop, device_id, settings.TIMEZONE))
 
 
 @router.get(
@@ -136,7 +136,7 @@ async def analytics_monthly_profile(
     stop = to or now
     if start >= stop:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "'from' debe ser anterior a 'to'")
-    return ApiResponse(data=await weekday_profile(repo, start, stop, device_id))
+    return ApiResponse(data=await weekday_profile(repo, start, stop, device_id, settings.TIMEZONE))
 
 
 @router.get(

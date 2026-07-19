@@ -81,7 +81,7 @@ async def test_daily_profile_groups_by_hour() -> None:
         TimeSeriesPoint(time=datetime(2026, 7, 14, 10, tzinfo=UTC), value=200.0),
         TimeSeriesPoint(time=datetime(2026, 7, 13, 11, tzinfo=UTC), value=50.0),
     ]
-    profile = await daily_profile(repo, START, STOP, None)
+    profile = await daily_profile(repo, START, STOP, None, "UTC")
     by_hour = {p.hour: p for p in profile}
     assert by_hour[10].power_avg_w == 150.0
     assert by_hour[10].sample_count == 2
@@ -90,7 +90,22 @@ async def test_daily_profile_groups_by_hour() -> None:
 
 async def test_daily_profile_empty() -> None:
     repo = FakeInfluxRepository()
-    assert await daily_profile(repo, START, STOP, None) == []
+    assert await daily_profile(repo, START, STOP, None, "UTC") == []
+
+
+async def test_daily_profile_groups_by_local_hour_not_utc() -> None:
+    """Regresión: sin convertir a tz_name primero, `.dt.hour()` de Polars
+    extrae la hora UTC. 2026-07-14T02:00:00Z es 2026-07-13 21:00 en Bogotá
+    (UTC-5) — debe agruparse en la hora local 21, no en la 2."""
+    repo = FakeInfluxRepository()
+    repo.instant_series_points = [
+        TimeSeriesPoint(time=datetime(2026, 7, 14, 2, tzinfo=UTC), value=300.0),
+    ]
+    profile = await daily_profile(repo, START, STOP, None, "America/Bogota")
+    by_hour = {p.hour: p for p in profile}
+    assert 21 in by_hour
+    assert 2 not in by_hour
+    assert by_hour[21].power_avg_w == 300.0
 
 
 async def test_weekday_profile_averages_consumption_and_export() -> None:
@@ -106,7 +121,7 @@ async def test_weekday_profile_averages_consumption_and_export() -> None:
             EnergyPoint(time=datetime(2026, 7, 13, tzinfo=UTC), value=7.0),
         ],
     }
-    profile = await weekday_profile(repo, START, STOP, None)
+    profile = await weekday_profile(repo, START, STOP, None, "UTC")
     monday = next(p for p in profile if p.weekday == 0)
     assert monday.weekday_name == "Lunes"
     assert monday.consumption_avg_kwh == 15.0
@@ -115,7 +130,24 @@ async def test_weekday_profile_averages_consumption_and_export() -> None:
 
 async def test_weekday_profile_empty() -> None:
     repo = FakeInfluxRepository()
-    assert await weekday_profile(repo, START, STOP, None) == []
+    assert await weekday_profile(repo, START, STOP, None, "UTC") == []
+
+
+async def test_weekday_profile_groups_by_local_weekday_not_utc() -> None:
+    """Regresión: 2026-07-14T02:00:00Z (martes en UTC) es 2026-07-13 21:00
+    en Bogotá (UTC-5) — lunes. Sin convertir a tz_name primero, este punto
+    se contaría como martes, corriendo el consumo nocturno al día
+    siguiente."""
+    repo = FakeInfluxRepository()
+    repo.energy_series_by_counter = {
+        Variable.POWER_ACTIVE_TOTAL_POS: [
+            EnergyPoint(time=datetime(2026, 7, 14, 2, tzinfo=UTC), value=10.0),
+        ],
+        Variable.POWER_ACTIVE_TOTAL_NEG: [],
+    }
+    profile = await weekday_profile(repo, START, STOP, None, "America/Bogota")
+    assert [p.weekday for p in profile] == [0]  # lunes, no martes
+    assert profile[0].consumption_avg_kwh == 10.0
 
 
 async def test_compare_periods_computes_deltas() -> None:

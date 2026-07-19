@@ -65,7 +65,7 @@ async def analytics_summary(
 ) -> AnalyticsSummary:
     kpis, profile = await asyncio.gather(
         compute_kpis(repo, settings, start, stop, device_id),
-        daily_profile(repo, start, stop, device_id),
+        daily_profile(repo, start, stop, device_id, settings.TIMEZONE),
     )
     peak_consumption_hour, peak_export_hour = _peak_hours(profile)
     efficiency = await _efficiency_recommendation(

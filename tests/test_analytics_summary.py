@@ -1,0 +1,93 @@
+from datetime import UTC, datetime
+from pathlib import Path
+
+from app.core.config import Settings
+from app.models.variables import Variable
+from app.schemas.influx import TimeSeriesPoint
+from app.schemas.tariff import TariffConfig, TariffPeriod
+from app.services.analytics.summary import analytics_summary
+from app.services.tariff.store import save_tariff_config
+from tests.fakes import FakeInfluxRepository
+
+START = datetime(2026, 6, 1, tzinfo=UTC)
+STOP = datetime(2026, 7, 1, tzinfo=UTC)
+
+
+def _settings(tariff_path: str = "unset-tariff.json") -> Settings:
+    return Settings(_env_file=None, TIMEZONE="America/Bogota", TARIFF_CONFIG_PATH=tariff_path)  # pyright: ignore[reportCallIssue]
+
+
+def _hourly_points() -> list[TimeSeriesPoint]:
+    return [
+        TimeSeriesPoint(time=datetime(2026, 6, 15, 10, tzinfo=UTC), value=800.0),
+        TimeSeriesPoint(time=datetime(2026, 6, 15, 13, tzinfo=UTC), value=-600.0),
+        TimeSeriesPoint(time=datetime(2026, 6, 15, 20, tzinfo=UTC), value=200.0),
+    ]
+
+
+async def test_analytics_summary_peak_hours() -> None:
+    repo = FakeInfluxRepository()
+    repo.instant_series_points = _hourly_points()
+    report = await analytics_summary(repo, _settings(), START, STOP, None)
+    assert report.peak_consumption_hour == 10
+    assert report.peak_export_hour == 13
+
+
+async def test_analytics_summary_no_export_hours_peak_export_none() -> None:
+    repo = FakeInfluxRepository()
+    repo.instant_series_points = [
+        TimeSeriesPoint(time=datetime(2026, 6, 15, 10, tzinfo=UTC), value=800.0),
+    ]
+    report = await analytics_summary(repo, _settings(), START, STOP, None)
+    assert report.peak_consumption_hour == 10
+    assert report.peak_export_hour is None
+
+
+async def test_analytics_summary_empty_profile_both_none() -> None:
+    repo = FakeInfluxRepository()
+    report = await analytics_summary(repo, _settings(), START, STOP, None)
+    assert report.peak_consumption_hour is None
+    assert report.peak_export_hour is None
+    assert report.hourly_profile == []
+
+
+async def test_analytics_summary_efficiency_without_tariff_is_none() -> None:
+    repo = FakeInfluxRepository()
+    report = await analytics_summary(repo, _settings(), START, STOP, None)
+    assert report.efficiency is None
+
+
+async def test_analytics_summary_efficiency_uses_current_month_tariff(tmp_path: Path) -> None:
+    tariff_path = tmp_path / "tariffs.json"
+    now = datetime.now(tz=UTC)
+    month = f"{now.year:04d}-{now.month:02d}"
+    config = TariffConfig(
+        excedente_cop_kwh=114.34,
+        periods=[TariffPeriod(month=month, cu_cop_kwh=902.28, cargo_fijo_cop=9486.0)],
+    )
+    await save_tariff_config(str(tariff_path), config)
+
+    repo = FakeInfluxRepository()
+    repo.energy_total_by_counter = {Variable.POWER_ACTIVE_TOTAL_NEG: 10.0}
+
+    report = await analytics_summary(repo, _settings(str(tariff_path)), START, STOP, None)
+
+    assert report.efficiency is not None
+    assert report.efficiency.stale is False
+    assert report.efficiency.export_kwh == 10.0
+    assert report.efficiency.potential_savings_cop == round(10.0 * (902.28 - 114.34), 2)
+
+
+async def test_analytics_summary_efficiency_flags_stale_month(tmp_path: Path) -> None:
+    tariff_path = tmp_path / "stale-tariff.json"
+    config = TariffConfig(
+        excedente_cop_kwh=114.34,
+        periods=[TariffPeriod(month="2020-01", cu_cop_kwh=500.0, cargo_fijo_cop=5000.0)],
+    )
+    await save_tariff_config(str(tariff_path), config)
+
+    repo = FakeInfluxRepository()
+    report = await analytics_summary(repo, _settings(str(tariff_path)), START, STOP, None)
+
+    assert report.efficiency is not None
+    assert report.efficiency.stale is True

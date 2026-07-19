@@ -11,6 +11,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.schemas.tariff import EfficiencyRecommendation
+
 
 class HourProfilePoint(BaseModel):
     hour: int
@@ -77,3 +79,22 @@ class AnalyticsOverview(BaseModel):
     max_demand: MaxDemandResult
     load_factor: LoadFactorResult
     base_load: BaseLoadResult
+
+
+class AnalyticsSummary(BaseModel):
+    """Resumen general para exportar (ej. PDF desde el frontend): consumo y
+    exportación diario/semanal/mensual, patrón horario típico, hora de mayor
+    consumo y de mayor exportación, y la recomendación de eficiencia."""
+
+    period_start: datetime
+    period_end: datetime
+    device_id: str | None
+    consumption_daily_kwh: float
+    consumption_weekly_kwh: float
+    consumption_monthly_kwh: float
+    export_daily_kwh: float
+    export_monthly_kwh: float
+    hourly_profile: list[HourProfilePoint]
+    peak_consumption_hour: int | None
+    peak_export_hour: int | None
+    efficiency: EfficiencyRecommendation | None

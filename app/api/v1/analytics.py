@@ -7,7 +7,7 @@ esos indicadores no están definidos.
 """
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,6 +19,7 @@ from app.models.variables import Variable
 from app.repositories.influx import InfluxRepository
 from app.schemas.analytics import (
     AnalyticsOverview,
+    AnalyticsSummary,
     BaseLoadResult,
     CompareResult,
     HourProfilePoint,
@@ -32,10 +33,17 @@ from app.services.analytics.compare import compare_periods
 from app.services.analytics.demand import max_demand
 from app.services.analytics.load_factor import load_factor
 from app.services.analytics.profile import daily_profile, weekday_profile
+from app.services.analytics.summary import analytics_summary
 from app.services.influx.cache import cached_energy_total
 from app.utils.period import start_of_day, start_of_month
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+# El perfil horario (hora de mayor consumo/exportación) necesita varias
+# semanas de muestras por hora para ser representativo — a diferencia de los
+# demás endpoints de /analytics, "hoy" (el default de _resolve_range) no
+# alcanza para eso, por eso /summary tiene su propio default más largo.
+SUMMARY_LOOKBACK_DAYS = 30
 
 RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -204,3 +212,29 @@ async def analytics_compare(
             status.HTTP_400_BAD_REQUEST, "cada rango debe tener 'from' anterior a 'to'"
         )
     return ApiResponse(data=await compare_periods(repo, from_a, to_a, from_b, to_b, device_id))
+
+
+@router.get(
+    "/summary",
+    summary="Resumen general (consumo, exportación, horas pico, eficiencia)",
+    response_model=ApiResponse[AnalyticsSummary],
+)
+async def analytics_summary_endpoint(
+    repo: RepoDep,
+    settings: SettingsDep,
+    _user: CurrentUser,
+    from_: FromQuery = None,
+    to: ToQuery = None,
+    device_id: str | None = None,
+) -> ApiResponse[AnalyticsSummary]:
+    """Consumo/exportación diario-semanal-mensual, hora típica de mayor
+    consumo y de mayor exportación (perfil horario sobre el rango, por
+    defecto últimos 30 días), y cuánto se habría ahorrado en COP si la
+    energía exportada este mes se hubiera autoconsumido a la tarifa
+    vigente. Pensado para el botón "exportar resumen" de Analítica."""
+    now = datetime.now(tz=UTC)
+    start = from_ or (now - timedelta(days=SUMMARY_LOOKBACK_DAYS))
+    stop = to or now
+    if start >= stop:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "'from' debe ser anterior a 'to'")
+    return ApiResponse(data=await analytics_summary(repo, settings, start, stop, device_id))

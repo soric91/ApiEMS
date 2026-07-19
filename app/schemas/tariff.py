@@ -68,3 +68,18 @@ class CostBreakdown(BaseModel):
         description="Meses del rango sin tarifa registrada; se usó la más reciente anterior",
     )
     series: list[CostPoint] = Field(default_factory=lambda: [])
+
+
+class EfficiencyRecommendation(BaseModel):
+    """Cuánto se habría ahorrado en COP si toda la energía exportada este
+    mes se hubiera autoconsumido en vez de exportado, al precio de tarifa
+    vigente (`cu_cop_kwh - excedente_cop_kwh` por kWh). Es una cota superior
+    ilustrativa — asume que TODO lo exportado se pudo desplazar a consumo,
+    no una promesa de ahorro exacto."""
+
+    tariff_month: str
+    stale: bool
+    cu_cop_kwh: float
+    excedente_cop_kwh: float
+    export_kwh: float
+    potential_savings_cop: float

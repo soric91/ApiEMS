@@ -29,9 +29,10 @@ def _month_key(dt: datetime) -> str:
     return f"{dt.year:04d}-{dt.month:02d}"
 
 
-def _rate_for_month(config: TariffConfig, month: str) -> tuple[TariffPeriod | None, bool]:
+def rate_for_month(config: TariffConfig, month: str) -> tuple[TariffPeriod | None, bool]:
     """(tarifa, is_stale). is_stale=True si no había tarifa exacta para ese
-    mes y se usó la más reciente anterior disponible."""
+    mes y se usó la más reciente anterior disponible. Pública: también la
+    usa `services/analytics/summary.py` para la recomendación de eficiencia."""
     exact = next((p for p in config.periods if p.month == month), None)
     if exact is not None:
         return exact, False
@@ -77,7 +78,7 @@ def _accumulate(
 
     for point in consumption_points:
         month = _month_key(point.time)
-        rate, stale = _rate_for_month(config, month)
+        rate, stale = rate_for_month(config, month)
         export_value = export_by_time.get(point.time, 0.0)
         export_credit_point = round(export_value * config.excedente_cop_kwh, 2)
 
@@ -107,7 +108,7 @@ def _accumulate(
     cargo_fijo_total = 0.0
     if include_cargo_fijo:
         for month in _months_in_range(period_start, period_end):
-            rate, stale = _rate_for_month(config, month)
+            rate, stale = rate_for_month(config, month)
             if rate is None:
                 stale_months.add(month)
                 continue

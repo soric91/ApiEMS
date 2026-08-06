@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     # tiene sentido reiniciar el contenedor solo para actualizar un número.
     TARIFF_CONFIG_PATH: str = "data/tariffs.json"
 
+    # --- CRMBackend (Fase 5, prompt_arquitectura_v2.md) ---
+    # Cuenta de servicio: CRMBackend todavía no tiene credencial
+    # máquina-a-máquina, solo login de usuario — se usa una cuenta con el rol
+    # mínimo que alcance. app/services/crm/client.py y
+    # app/services/tariff/crm_adapter.py ya están listos, pero NO conectados
+    # a get_tariff_config() todavía: el modelo Tariff de CRMBackend no tiene
+    # cargo_fijo, y usarlo en vivo pondría ese cargo en 0 en cada cálculo de
+    # costo mensual/anual sin que nadie lo decidiera explícitamente.
+    CRM_BASE_URL: str = ""
+    CRM_SERVICE_EMAIL: str = ""
+    CRM_SERVICE_PASSWORD: str = ""
+
     @model_validator(mode="after")
     def _require_strong_secrets_in_production(self) -> "Settings":
         if self.ENVIRONMENT == "production":

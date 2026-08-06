@@ -1,12 +1,15 @@
-"""Cliente HTTP hacia CRMBackend — cuenta de servicio (Fase 5).
+"""Cliente HTTP hacia CRMBackend — credencial de servicio (Fase 5).
 
-CRMBackend todavía no expone una credencial máquina-a-máquina (ver
-`prompt_arquitectura_v2.md`, Fase 5, punto 1): el único login disponible es
-el de un usuario real, con rol y audiencia de usuario. Este cliente hace
-login con una cuenta dedicada (`CRM_SERVICE_EMAIL`/`CRM_SERVICE_PASSWORD`) y
-cachea el access token en memoria hasta que el servidor lo rechace.
+CRMBackend expone `POST /api/v1/service/token`: intercambia
+`client_id`/`client_secret` (emitidos desde su panel, `POST
+/api/v1/service-accounts`, solo admin) por un token de corta duración con
+permisos explícitos (acá: `tariffs:read`). Nada de esto es una cuenta de
+usuario — no hay email/password, y el token no sirve para escribir nada
+(`GET /api/v1/tariffs` acepta el token de servicio; POST/PATCH/DELETE
+siguen cerrados a máquinas).
 """
 
+import time
 from typing import Any
 
 import httpx
@@ -15,6 +18,9 @@ from app.core.config import Settings
 
 _HTTP_OK = 200
 _HTTP_UNAUTHORIZED = 401
+# Renovar un poco antes de que expire de verdad — evita perder una llamada
+# en vuelo justo en el borde del vencimiento.
+_EXPIRY_SAFETY_MARGIN_SECONDS = 10
 
 
 class CrmClientError(RuntimeError):
@@ -26,9 +32,10 @@ class CrmClient:
         self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None
     ) -> None:
         self._base_url = settings.CRM_BASE_URL.rstrip("/")
-        self._email = settings.CRM_SERVICE_EMAIL
-        self._password = settings.CRM_SERVICE_PASSWORD
+        self._client_id = settings.CRM_CLIENT_ID
+        self._client_secret = settings.CRM_CLIENT_SECRET
         self._token: str | None = None
+        self._token_expires_at: float = 0.0
         # Inyectable en tests (httpx.MockTransport) — None en producción usa
         # el transporte HTTP real de httpx.
         self._transport = transport
@@ -38,34 +45,43 @@ class CrmClient:
 
     @property
     def configured(self) -> bool:
-        return bool(self._base_url and self._email and self._password)
+        return bool(self._base_url and self._client_id and self._client_secret)
+
+    def _token_is_fresh(self) -> bool:
+        return self._token is not None and time.monotonic() < self._token_expires_at
 
     async def _login(self, client: httpx.AsyncClient) -> str:
         if not self.configured:
-            raise CrmClientError(
-                "CRM_BASE_URL/CRM_SERVICE_EMAIL/CRM_SERVICE_PASSWORD sin configurar"
-            )
+            raise CrmClientError("CRM_BASE_URL/CRM_CLIENT_ID/CRM_CLIENT_SECRET sin configurar")
         response = await client.post(
-            f"{self._base_url}/api/v1/auth/login",
-            json={"email": self._email, "password": self._password},
+            f"{self._base_url}/api/v1/service/token",
+            json={"client_id": self._client_id, "client_secret": self._client_secret},
         )
         if response.status_code != _HTTP_OK:
             raise CrmClientError(
-                f"login contra CRMBackend falló: HTTP {response.status_code}"
+                f"token de servicio CRMBackend falló: HTTP {response.status_code}"
             )
-        token = response.json()["access_token"]
+        body = response.json()
+        token = body["access_token"]
+        expires_in = body["expires_in"]
         self._token = token
+        self._token_expires_at = time.monotonic() + expires_in - _EXPIRY_SAFETY_MARGIN_SECONDS
         return token
 
     async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         async with self._new_client() as client:
-            token = self._token or await self._login(client)
+            token = self._token if self._token_is_fresh() else await self._login(client)
             response = await client.get(
                 f"{self._base_url}{path}",
                 params=params,
                 headers={"Authorization": f"Bearer {token}"},
             )
             if response.status_code == _HTTP_UNAUTHORIZED:
+                # Solo 401 (token vencido/revocado del lado del CRM) — nunca
+                # 403. Un 403 significa que la credencial es válida pero le
+                # falta el permiso (ej. pidieron fleet:read sin tenerlo);
+                # pedir un token nuevo no cambia eso, sería un reintento en
+                # loop hacia el mismo resultado.
                 token = await self._login(client)
                 response = await client.get(
                     f"{self._base_url}{path}",

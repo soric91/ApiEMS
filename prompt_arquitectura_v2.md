@@ -299,18 +299,27 @@ Detalles que importan al implementarlo:
   un consumidor de telemetría.
 - **Ni tarifas.** Siguen en `/api/v1/tariffs` (Fase 5).
 
-### Autenticación — sin cambios todavía
+### Autenticación — RESUELTO: credencial de servicio
 
-`GET /fleet` se autentica igual que `/tariffs`: con el JWT de un **usuario** de
-CRMBackend, audiencia `crm` o `monitor`. No hay token de servicio
-máquina-a-máquina. Un login de rol `cliente` queda confinado a su propia empresa
-automáticamente, y pasarle `client_id=<otra empresa>` devuelve una página vacía,
-nunca datos ajenos.
+CRMBackend ya expone credenciales máquina-a-máquina. ApiEMS deja de entrar con
+la cuenta de una persona.
 
-Que ApiEMS se autentique como servicio y no como usuario prestado es una pieza
-aparte — credencial de servicio con audiencia propia — y está agendada como la
-**siguiente fase del lado de CRMBackend**. Hasta entonces, ApiEMS usa una cuenta
-de CRMBackend con el rol mínimo que le sirva.
+```
+POST /api/v1/service/token   {"client_id": "svc_...", "client_secret": "svcsec_..."}
+→ token de 1 h, audiencia `service`, solo lectura
+```
+
+Llega exactamente a dos rutas, y solo con el permiso correspondiente:
+`tariffs:read` → `GET /api/v1/tariffs`, `fleet:read` → `GET /api/v1/fleet`.
+Cualquier otra responde 401. Ningún permiso habilita escribir.
+
+**Los cambios que hay que hacer en ApiEMS están en
+`PROMPT_CRM_SERVICE_AUTH.md`**, en la raíz de este repo: configuración, cliente
+HTTP, caché por ETag, degradación cuando el CRM no está, y los tests.
+
+Lo que sigue abierto es distinto: que **el frontend** se autentique contra
+CRMBackend y ApiEMS valide ese JWT de usuario. La credencial de servicio no
+dice quién está mirando la pantalla. Ese cambio necesita su propio documento.
 
 ---
 

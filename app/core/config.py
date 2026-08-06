@@ -63,16 +63,14 @@ class Settings(BaseSettings):
     TARIFF_CONFIG_PATH: str = "data/tariffs.json"
 
     # --- CRMBackend (Fase 5, prompt_arquitectura_v2.md) ---
-    # Cuenta de servicio: CRMBackend todavía no tiene credencial
-    # máquina-a-máquina, solo login de usuario — se usa una cuenta con el rol
-    # mínimo que alcance. app/services/crm/client.py y
-    # app/services/tariff/crm_adapter.py ya están listos, pero NO conectados
-    # a get_tariff_config() todavía: el modelo Tariff de CRMBackend no tiene
-    # cargo_fijo, y usarlo en vivo pondría ese cargo en 0 en cada cálculo de
-    # costo mensual/anual sin que nadie lo decidiera explícitamente.
+    # Credencial máquina-a-máquina real: POST /api/v1/service/token con
+    # client_id/client_secret devuelve un token de servicio (permiso
+    # tariffs:read), aceptado por GET /api/v1/tariffs. Emitida desde el panel
+    # de CRMBackend (POST /api/v1/service-accounts, solo admin) — no es una
+    # cuenta de usuario ni tiene email/password.
     CRM_BASE_URL: str = ""
-    CRM_SERVICE_EMAIL: str = ""
-    CRM_SERVICE_PASSWORD: str = ""
+    CRM_CLIENT_ID: str = ""
+    CRM_CLIENT_SECRET: str = ""
 
     @model_validator(mode="after")
     def _require_strong_secrets_in_production(self) -> "Settings":
@@ -81,6 +79,13 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET debe tener al menos 32 caracteres en producción")
             if not self.API_PASSWORD or self.API_PASSWORD == "changeme":
                 raise ValueError("API_PASSWORD debe definirse (y no ser 'changeme') en producción")
+            # Solo si se configuró CRM_BASE_URL: un secreto vacío o de ejemplo
+            # se detecta al arrancar, no en la primera petición de costos.
+            if self.CRM_BASE_URL and not self.CRM_CLIENT_SECRET.startswith("svcsec_"):
+                raise ValueError(
+                    "CRM_CLIENT_SECRET debe ser una credencial de servicio real "
+                    "('svcsec_...') cuando CRM_BASE_URL está configurado en producción"
+                )
         return self
 
     @property

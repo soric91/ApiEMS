@@ -57,18 +57,6 @@ async def test_build_report_net_balance() -> None:
     assert report.net_balance_kwh == 7.0
 
 
-@pytest.mark.parametrize(
-    ("report_type", "expected_cargo_fijo"),
-    [("daily", False), ("weekly", False), ("monthly", True), ("yearly", True)],
-)
-async def test_build_report_costs_cargo_fijo_matches_period(
-    report_type: str, expected_cargo_fijo: bool
-) -> None:
-    repo = FakeInfluxRepository()
-    report = await build_report(repo, _settings(), report_type, None)  # pyright: ignore[reportArgumentType]
-    assert report.costs.cargo_fijo_included is expected_cargo_fijo
-
-
 async def test_build_report_costs_without_tariff_is_zero_and_stale() -> None:
     repo = FakeInfluxRepository()
     repo.energy_total_by_counter = {
@@ -83,8 +71,7 @@ async def test_build_report_costs_without_tariff_is_zero_and_stale() -> None:
 async def test_build_report_costs_uses_configured_tariff(tmp_path: Path) -> None:
     tariff_path = tmp_path / "tariffs.json"
     config = TariffConfig(
-        excedente_cop_kwh=114.34,
-        periods=[TariffPeriod(month="2026-01", cu_cop_kwh=859.19, cargo_fijo_cop=9090.0)],
+        periods=[TariffPeriod(month="2026-01", cu_cop_kwh=859.19, excedente_cop_kwh=114.34)],
     )
     await save_tariff_config(str(tariff_path), config)
 
@@ -106,6 +93,4 @@ async def test_build_report_costs_uses_configured_tariff(tmp_path: Path) -> None
 
     assert report.costs.period == "custom"
     assert report.costs.consumption_cost_cop == round(10.0 * 859.19, 2)
-    assert report.costs.cargo_fijo_included is True
-    assert report.costs.cargo_fijo_cop == 9090.0
     assert report.costs.series[0].consumption_kwh == 10.0

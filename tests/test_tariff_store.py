@@ -7,15 +7,17 @@ from app.services.tariff.store import load_tariff_config, save_tariff_config
 async def test_load_missing_file_returns_empty_config(tmp_path: Path) -> None:
     config = await load_tariff_config(str(tmp_path / "nope.json"))
     assert config.periods == []
-    assert config.excedente_cop_kwh == 0.0
 
 
 async def test_save_then_load_roundtrip(tmp_path: Path) -> None:
     path = str(tmp_path / "tariffs.json")
     original = TariffConfig(
-        excedente_cop_kwh=114.34,
         umbral_cs_kwh=130.0,
-        periods=[TariffPeriod(month="2026-01", cu_cop_kwh=859.19, cargo_fijo_cop=9090.0)],
+        periods=[
+            TariffPeriod(
+                month="2026-01", cu_cop_kwh=859.19, excedente_cop_kwh=114.34
+            )
+        ],
     )
 
     await save_tariff_config(path, original)
@@ -26,10 +28,10 @@ async def test_save_then_load_roundtrip(tmp_path: Path) -> None:
 
 async def test_save_creates_parent_directory(tmp_path: Path) -> None:
     path = str(tmp_path / "nested" / "dir" / "tariffs.json")
-    config = TariffConfig(excedente_cop_kwh=100.0)
+    config = TariffConfig(umbral_cs_kwh=100.0)
 
     await save_tariff_config(path, config)
 
     assert Path(path).exists()
     loaded = await load_tariff_config(path)
-    assert loaded.excedente_cop_kwh == 100.0
+    assert loaded.umbral_cs_kwh == 100.0

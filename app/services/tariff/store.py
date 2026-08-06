@@ -6,12 +6,13 @@ del proyecto.
 
 Fase 5 (prompt_arquitectura_v2.md) pedía reemplazar este archivo por
 CRMBackend (`GET /api/v1/tariffs`). El cliente y el adaptador ya existen
-(`app/services/crm/client.py`, `app/services/tariff/crm_adapter.py`) pero
-`load_tariff_config` sigue leyendo el JSON local a propósito: el modelo de
-CRMBackend no tiene cargo fijo, así que conmutar la fuente pondría
-`cargo_fijo_cop` en 0 en todo costo mensual/anual sin que nadie lo haya
-decidido. Cambiar esto requiere antes cerrar ese gap del lado de CRMBackend
-o decidir explícitamente de dónde sale el cargo fijo.
+(`app/services/crm/client.py`, `app/services/tariff/crm_adapter.py`) y ya
+NO hay gap de modelo entre los dos lados — `Tariff` de CRMBackend
+(`mes`, `valor_importado`, `valor_excedente`) mapea 1:1 con `TariffPeriod`
+(`month`, `cu_cop_kwh`, `excedente_cop_kwh`) desde que se sacó el cargo fijo
+de este proyecto. `load_tariff_config` sigue leyendo el JSON local de
+todos modos: falta resolver la autenticación de servicio de ApiEMS contra
+CRMBackend (Fase 5, punto 1) antes de conmutar la fuente en vivo.
 """
 
 import asyncio
@@ -19,7 +20,7 @@ from pathlib import Path
 
 from app.schemas.tariff import TariffConfig
 
-_EMPTY = TariffConfig(excedente_cop_kwh=0.0)
+_EMPTY = TariffConfig()
 
 
 def _read_if_exists(path: str) -> str | None:

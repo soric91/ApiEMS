@@ -12,13 +12,12 @@ def test_adapt_crm_tariffs_maps_fields_and_sorts_by_month() -> None:
     assert [p.month for p in config.periods] == ["2026-06", "2026-07"]
     assert config.periods[0].cu_cop_kwh == 902.28
     assert config.periods[1].cu_cop_kwh == 950.5
-    # El cargo fijo no existe en CRMBackend todavía — se deja en 0, no se inventa.
-    assert all(p.cargo_fijo_cop == 0.0 for p in config.periods)
-    # excedente_cop_kwh es raíz en ApiEMS (no por mes): se toma el mes más reciente.
-    assert config.excedente_cop_kwh == 120.0
+    # excedente_cop_kwh es por mes, igual que cu_cop_kwh — sin cargo fijo,
+    # ese concepto no existe en este mercado.
+    assert config.periods[0].excedente_cop_kwh == 114.34
+    assert config.periods[1].excedente_cop_kwh == 120.0
 
 
 def test_adapt_crm_tariffs_empty_list() -> None:
     config = adapt_crm_tariffs([])
     assert config.periods == []
-    assert config.excedente_cop_kwh == 0.0

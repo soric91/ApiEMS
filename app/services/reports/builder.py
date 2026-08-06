@@ -18,7 +18,6 @@ from app.services.tariff.cost import compute_cost_from_points
 from app.services.tariff.store import load_tariff_config
 from app.utils.period import start_of_day, start_of_month, start_of_week, start_of_year
 
-_COST_WITH_CARGO_FIJO: frozenset[ReportPeriod] = frozenset({"monthly", "yearly", "custom"})
 _REPORT_TO_COST_PERIOD: dict[ReportPeriod, CostPeriod] = {
     "daily": "day",
     "weekly": "week",
@@ -95,7 +94,6 @@ async def build_report(
         export_series,
         consumption_total,
         export_total,
-        include_cargo_fijo=report_type in _COST_WITH_CARGO_FIJO,
     )
 
     return ReportData(

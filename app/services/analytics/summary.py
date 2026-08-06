@@ -35,24 +35,32 @@ def _peak_hours(profile: list[HourProfilePoint]) -> tuple[int | None, int | None
 
 
 async def _efficiency_recommendation(
-    tariff_path: str, export_monthly_kwh: float
+    tariff_path: str, export_monthly_kwh: float, consumption_monthly_kwh: float
 ) -> EfficiencyRecommendation | None:
     """None si el mes en curso no tiene NINGUNA tarifa registrada todavía
     (ni siquiera una anterior de la cual estimar) — no se inventa un
-    ahorro sin tarifa de referencia."""
+    ahorro sin tarifa de referencia.
+
+    El tramo 1 del excedente (hasta lo importado en el mes) ya se paga al
+    mismo precio que importar — ahí no hay nada que ganar autoconsumiendo.
+    Solo el tramo 2 (lo exportado por encima de lo importado) tiene el gap
+    `cu_cop_kwh - excedente_cop_kwh` por kWh (ver
+    `app/services/tariff/cost.py`).
+    """
     config = await load_tariff_config(tariff_path)
     month = _month_key(datetime.now(tz=UTC))
     rate, stale = rate_for_month(config, month)
     if rate is None:
         return None
-    delta_cop_kwh = rate.cu_cop_kwh - config.excedente_cop_kwh
+    tier2_kwh = max(0.0, export_monthly_kwh - consumption_monthly_kwh)
+    delta_cop_kwh = rate.cu_cop_kwh - rate.excedente_cop_kwh
     return EfficiencyRecommendation(
         tariff_month=rate.month,
         stale=stale,
         cu_cop_kwh=rate.cu_cop_kwh,
-        excedente_cop_kwh=config.excedente_cop_kwh,
+        excedente_cop_kwh=rate.excedente_cop_kwh,
         export_kwh=export_monthly_kwh,
-        potential_savings_cop=round(export_monthly_kwh * delta_cop_kwh, 2),
+        potential_savings_cop=round(tier2_kwh * delta_cop_kwh, 2),
     )
 
 
@@ -69,7 +77,7 @@ async def analytics_summary(
     )
     peak_consumption_hour, peak_export_hour = _peak_hours(profile)
     efficiency = await _efficiency_recommendation(
-        settings.TARIFF_CONFIG_PATH, kpis.export_monthly_kwh
+        settings.TARIFF_CONFIG_PATH, kpis.export_monthly_kwh, kpis.consumption_monthly_kwh
     )
 
     return AnalyticsSummary(

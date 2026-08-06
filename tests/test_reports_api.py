@@ -44,7 +44,6 @@ def test_report_endpoints_return_data(
     assert "kpis" in body
     assert "max_demand" in body
     assert "costs" in body
-    assert body["costs"]["cargo_fijo_included"] is (period in {"monthly", "yearly"})
 
 
 def test_report_custom_requires_bounds(client: TestClient) -> None:

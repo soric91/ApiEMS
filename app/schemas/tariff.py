@@ -1,8 +1,11 @@
 """Modelos de tarifa eléctrica (mercado regulado, ej. EPM) y costo en COP.
 
-La tarifa (CU, cargo fijo) cambia mes a mes por regulación CREG — se guarda
+La tarifa (CU, excedente) cambia mes a mes por regulación CREG — se guarda
 un historial por mes de vigencia para que el costo de un mes pasado use la
 tarifa que realmente aplicaba entonces, no la tarifa actual.
+
+Sin cargo fijo: este mercado no lo cobra, no es un campo omitido a propósito
+en 0 — el concepto no existe acá.
 """
 
 import re
@@ -17,11 +20,20 @@ CostPeriod = Literal["day", "week", "month", "year", "custom"]
 
 
 class TariffPeriod(BaseModel):
-    """Tarifa vigente para un mes calendario ("YYYY-MM")."""
+    """Tarifa vigente para un mes calendario ("YYYY-MM").
+
+    `excedente_cop_kwh` es el precio del TRAMO 2 del excedente exportado —
+    ver `app/services/tariff/cost.py::_accumulate` para la fórmula completa
+    de dos tramos. Cambia mes a mes junto con `cu_cop_kwh` (misma
+    regulación CREG), por eso vive acá y no en `TariffConfig`.
+    """
 
     month: str = Field(examples=["2026-06"])
     cu_cop_kwh: float = Field(description="Costo unitario, rango > CS (COP/kWh)")
-    cargo_fijo_cop: float = Field(description="Cargo fijo mensual (COP/factura)")
+    excedente_cop_kwh: float = Field(
+        description="Precio del tramo 2 del excedente exportado (COP/kWh) — "
+        "el tramo 1, hasta lo importado en el mismo mes, se paga a cu_cop_kwh"
+    )
 
     @field_validator("month")
     @classmethod
@@ -32,7 +44,6 @@ class TariffPeriod(BaseModel):
 
 
 class TariffConfig(BaseModel):
-    excedente_cop_kwh: float = Field(description="Crédito por energía exportada a la red (COP/kWh)")
     umbral_cs_kwh: float = Field(
         default=130.0, description="Umbral de consumo subsidiado (kWh/mes)"
     )
@@ -59,9 +70,7 @@ class CostBreakdown(BaseModel):
     export_kwh: float
     consumption_cost_cop: float
     export_credit_cop: float
-    cargo_fijo_cop: float
-    net_cost_cop: float  # consumption_cost + cargo_fijo - export_credit
-    cargo_fijo_included: bool  # False en day/week: no tiene sentido prorratearlo
+    net_cost_cop: float  # consumption_cost - export_credit
     months_used: list[str]
     stale_months: list[str] = Field(
         default_factory=lambda: [],
@@ -71,11 +80,12 @@ class CostBreakdown(BaseModel):
 
 
 class EfficiencyRecommendation(BaseModel):
-    """Cuánto se habría ahorrado en COP si toda la energía exportada este
-    mes se hubiera autoconsumido en vez de exportado, al precio de tarifa
-    vigente (`cu_cop_kwh - excedente_cop_kwh` por kWh). Es una cota superior
-    ilustrativa — asume que TODO lo exportado se pudo desplazar a consumo,
-    no una promesa de ahorro exacto."""
+    """Cuánto se habría ahorrado en COP si el excedente exportado del TRAMO 2
+    (lo exportado por encima de lo importado en el mismo mes — el tramo 1 ya
+    se paga al mismo precio que importar, ahí no hay nada que ganar) se
+    hubiera autoconsumido en vez de exportado, a `cu_cop_kwh -
+    excedente_cop_kwh` por kWh. Es una cota superior ilustrativa — asume que
+    TODO ese tramo 2 se pudo desplazar a consumo, no una promesa exacta."""
 
     tariff_month: str
     stale: bool

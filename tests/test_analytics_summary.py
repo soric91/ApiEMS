@@ -64,12 +64,14 @@ async def test_analytics_summary_efficiency_uses_current_month_tariff(tmp_path: 
     now = datetime.now(tz=UTC)
     month = f"{now.year:04d}-{now.month:02d}"
     config = TariffConfig(
-        excedente_cop_kwh=114.34,
-        periods=[TariffPeriod(month=month, cu_cop_kwh=902.28, cargo_fijo_cop=9486.0)],
+        periods=[TariffPeriod(month=month, cu_cop_kwh=902.28, excedente_cop_kwh=114.34)],
     )
     await save_tariff_config(str(tariff_path), config)
 
     repo = FakeInfluxRepository()
+    # consumption_monthly_kwh usa el default del fake (energy_total_value=5.5);
+    # export_monthly_kwh=10.0 -> tramo 2 = 10.0 - 5.5 = 4.5 (lo que de verdad
+    # se habría ahorrado, no el excedente total).
     repo.energy_total_by_counter = {Variable.POWER_ACTIVE_TOTAL_NEG: 10.0}
 
     report = await analytics_summary(repo, _settings(str(tariff_path)), START, STOP, None)
@@ -77,14 +79,13 @@ async def test_analytics_summary_efficiency_uses_current_month_tariff(tmp_path: 
     assert report.efficiency is not None
     assert report.efficiency.stale is False
     assert report.efficiency.export_kwh == 10.0
-    assert report.efficiency.potential_savings_cop == round(10.0 * (902.28 - 114.34), 2)
+    assert report.efficiency.potential_savings_cop == round(4.5 * (902.28 - 114.34), 2)
 
 
 async def test_analytics_summary_efficiency_flags_stale_month(tmp_path: Path) -> None:
     tariff_path = tmp_path / "stale-tariff.json"
     config = TariffConfig(
-        excedente_cop_kwh=114.34,
-        periods=[TariffPeriod(month="2020-01", cu_cop_kwh=500.0, cargo_fijo_cop=5000.0)],
+        periods=[TariffPeriod(month="2020-01", cu_cop_kwh=500.0, excedente_cop_kwh=100.0)],
     )
     await save_tariff_config(str(tariff_path), config)
 

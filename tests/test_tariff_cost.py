@@ -5,12 +5,12 @@ from app.schemas.influx import EnergyPoint
 from app.schemas.tariff import TariffConfig, TariffPeriod
 from app.services.tariff.cost import compute_cost, compute_cost_from_points
 
-JAN = TariffPeriod(month="2026-01", cu_cop_kwh=859.19, cargo_fijo_cop=9090.0)
-FEB = TariffPeriod(month="2026-02", cu_cop_kwh=801.24, cargo_fijo_cop=9197.0)
+JAN = TariffPeriod(month="2026-01", cu_cop_kwh=859.19, excedente_cop_kwh=114.34)
+FEB = TariffPeriod(month="2026-02", cu_cop_kwh=801.24, excedente_cop_kwh=100.0)
 
 
-def _config(*periods: TariffPeriod, excedente: float = 114.34) -> TariffConfig:
-    return TariffConfig(excedente_cop_kwh=excedente, periods=list(periods))
+def _config(*periods: TariffPeriod) -> TariffConfig:
+    return TariffConfig(periods=list(periods))
 
 
 def _summary(points: list[EnergyPoint], start: datetime, end: datetime) -> EnergySummary:
@@ -40,7 +40,9 @@ def test_consumption_cost_uses_matching_month_rate() -> None:
     assert result.stale_months == []
 
 
-def test_export_credit_uses_excedente_rate() -> None:
+def test_export_credit_uses_excedente_rate_when_no_import() -> None:
+    """Sin nada importado ese mes, TODO el excedente cae en tramo 2 (no hay
+    tramo 1 posible: min(0, exportado) == 0)."""
     config = _config(JAN)
     consumption = _summary([], datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC))
     export = _summary(
@@ -52,24 +54,50 @@ def test_export_credit_uses_excedente_rate() -> None:
     result = compute_cost(config, "month", consumption, export, device_id="11")
 
     assert result.export_credit_cop == round(5.0 * 114.34, 2)
-    assert result.net_cost_cop == round(result.cargo_fijo_cop - 5.0 * 114.34, 2)
+    assert result.net_cost_cop == round(-5.0 * 114.34, 2)
 
 
-def test_cargo_fijo_included_only_for_month_and_year() -> None:
+def test_export_within_import_pays_import_rate_tier1_only() -> None:
+    """Ejemplo real: 100 kWh importados, 12 kWh exportados en el mismo mes —
+    los 12 caen enteros en tramo 1 (12 < 100), se pagan al precio de
+    importación, no al de excedente."""
     config = _config(JAN)
-    consumption = _summary([], datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC))
-    export = _summary([], consumption.period_start, consumption.period_end)
+    consumption = _summary(
+        [EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=100.0)],
+        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2026, 1, 31, tzinfo=UTC),
+    )
+    export = _summary(
+        [EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=12.0)],
+        consumption.period_start,
+        consumption.period_end,
+    )
 
-    month_result = compute_cost(config, "month", consumption, export, device_id="11")
-    assert month_result.cargo_fijo_included is True
-    assert month_result.cargo_fijo_cop == 9090.0
+    result = compute_cost(config, "month", consumption, export, device_id="11")
 
-    day_result = compute_cost(config, "day", consumption, export, device_id="11")
-    assert day_result.cargo_fijo_included is False
-    assert day_result.cargo_fijo_cop == 0.0
+    assert result.export_credit_cop == round(12.0 * JAN.cu_cop_kwh, 2)
 
-    week_result = compute_cost(config, "week", consumption, export, device_id="11")
-    assert week_result.cargo_fijo_included is False
+
+def test_export_beyond_import_splits_tier1_and_tier2() -> None:
+    """120 kWh importados, 150 kWh exportados en el mismo mes: 120 al precio
+    de importación (tramo 1), los 30 restantes al precio de excedente
+    (tramo 2)."""
+    config = _config(JAN)
+    consumption = _summary(
+        [EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=120.0)],
+        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2026, 1, 31, tzinfo=UTC),
+    )
+    export = _summary(
+        [EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=150.0)],
+        consumption.period_start,
+        consumption.period_end,
+    )
+
+    result = compute_cost(config, "month", consumption, export, device_id="11")
+
+    expected = round(120.0 * JAN.cu_cop_kwh + 30.0 * JAN.excedente_cop_kwh, 2)
+    assert result.export_credit_cop == expected
 
 
 def test_stale_month_uses_most_recent_earlier_rate() -> None:
@@ -144,7 +172,6 @@ def test_series_has_one_point_per_consumption_point() -> None:
         export_points,
         consumption_total=3.0,
         export_total=0.5,
-        include_cargo_fijo=False,
     )
 
     assert len(result.series) == 2
@@ -174,51 +201,21 @@ def test_export_point_without_matching_consumption_still_counts_in_total() -> No
         export_points,
         consumption_total=1.0,
         export_total=0.8,
-        include_cargo_fijo=False,
     )
 
     assert len(result.series) == 1
-    assert result.export_credit_cop == round(0.8 * 114.34, 2)
+    # Importado del mes (1.0) > exportado del mes (0.8): todo tramo 1, al
+    # precio de importación — no al de excedente.
+    assert result.export_credit_cop == round(0.8 * JAN.cu_cop_kwh, 2)
 
 
-def test_cargo_fijo_touches_every_calendar_month_even_without_points() -> None:
-    """El cargo fijo se debe por mes de facturación, no por presencia de
-    datos: un mes sin ningún punto de consumo igual debe cobrarlo (regresión
-    del bug donde `touched_months` se derivaba de `consumption_points`)."""
+def test_cargo_fijo_no_existe() -> None:
+    """El mercado no cobra cargo fijo — CostBreakdown no tiene ese campo."""
     config = _config(JAN)
+    consumption = _summary([], datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 31, tzinfo=UTC))
+    export = _summary([], consumption.period_start, consumption.period_end)
 
-    result = compute_cost_from_points(
-        config,
-        "custom",
-        datetime(2026, 1, 1, tzinfo=UTC),
-        datetime(2026, 1, 31, tzinfo=UTC),
-        None,
-        [],
-        [],
-        consumption_total=0.0,
-        export_total=0.0,
-        include_cargo_fijo=True,
-    )
+    result = compute_cost(config, "month", consumption, export, device_id="11")
 
-    assert result.cargo_fijo_cop == 9090.0
-    assert result.months_used == ["2026-01"]
-
-
-def test_cargo_fijo_spans_multiple_months_in_range() -> None:
-    config = _config(JAN, FEB)
-
-    result = compute_cost_from_points(
-        config,
-        "custom",
-        datetime(2026, 1, 15, tzinfo=UTC),
-        datetime(2026, 2, 15, tzinfo=UTC),
-        None,
-        [],
-        [],
-        consumption_total=0.0,
-        export_total=0.0,
-        include_cargo_fijo=True,
-    )
-
-    assert result.cargo_fijo_cop == round(9090.0 + 9197.0, 2)
-    assert result.months_used == ["2026-01", "2026-02"]
+    assert not hasattr(result, "cargo_fijo_cop")
+    assert not hasattr(result, "cargo_fijo_included")

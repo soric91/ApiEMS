@@ -1,9 +1,5 @@
-from pathlib import Path
-
-import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
 from tests.fakes import FakeInfluxRepository
 
 ENDPOINTS = [
@@ -14,14 +10,6 @@ ENDPOINTS = [
     "/api/v1/analytics/load-factor",
     "/api/v1/analytics/base-load",
 ]
-
-
-@pytest.fixture
-def tariff_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    path = tmp_path / "tariffs.json"
-    monkeypatch.setenv("TARIFF_CONFIG_PATH", str(path))
-    get_settings.cache_clear()
-    return path
 
 
 def _login(client: TestClient) -> dict[str, str]:
@@ -117,7 +105,7 @@ def test_compare_requires_all_bounds(client: TestClient) -> None:
 
 
 def test_analytics_summary_shape(
-    client: TestClient, tariff_path: Path, fake_influx_repo: FakeInfluxRepository
+    client: TestClient, fake_influx_repo: FakeInfluxRepository
 ) -> None:
     headers = _login(client)
     fake_influx_repo.energy_total_value = 3.0
@@ -131,7 +119,7 @@ def test_analytics_summary_shape(
     assert body["efficiency"] is None  # sin tarifa configurada
 
 
-def test_analytics_summary_invalid_range_rejected(client: TestClient, tariff_path: Path) -> None:
+def test_analytics_summary_invalid_range_rejected(client: TestClient) -> None:
     headers = _login(client)
     response = client.get(
         "/api/v1/analytics/summary",

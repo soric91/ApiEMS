@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from app.core.cache import clear_all_caches
 from app.core.config import get_settings
 from app.dependencies.influx import get_influx_repository
+from app.dependencies.tariff import get_tariff_config
 from app.main import create_app
+from app.schemas.tariff import TariffConfig
 from tests.fakes import FakeInfluxRepository, FakeInfluxService
 
 
@@ -36,10 +38,21 @@ def fake_influx_repo() -> FakeInfluxRepository:
 
 
 @pytest.fixture
-def client(app: FastAPI, fake_influx_repo: FakeInfluxRepository) -> Iterator[TestClient]:
-    # Los endpoints reales de InfluxDB se sustituyen por dobles en memoria:
-    # el cliente real solo se ejercita en los smoke tests manuales.
+def tariff_config() -> TariffConfig:
+    # Vacía por defecto — la fuente real es CRMBackend (RemoteTariffStore),
+    # que un test HTTP no debe golpear. Un test que necesite una tarifa
+    # concreta reasigna app.dependency_overrides[get_tariff_config] él mismo.
+    return TariffConfig()
+
+
+@pytest.fixture
+def client(
+    app: FastAPI, fake_influx_repo: FakeInfluxRepository, tariff_config: TariffConfig
+) -> Iterator[TestClient]:
+    # Los endpoints reales de InfluxDB/CRMBackend se sustituyen por dobles en
+    # memoria: el cliente real solo se ejercita en los smoke tests manuales.
     app.dependency_overrides[get_influx_repository] = lambda: fake_influx_repo
+    app.dependency_overrides[get_tariff_config] = lambda: tariff_config
     with TestClient(app) as test_client:
         app.state.influx = FakeInfluxService()  # evita ping() real tras el lifespan
         yield test_client

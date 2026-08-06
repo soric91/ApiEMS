@@ -16,9 +16,11 @@ from app.repositories.influx import InfluxRepository
 from app.schemas.mqtt import DeviceReading
 from app.services.alerts.detector import check_hourly
 from app.services.alerts.state import AlertsState
+from app.services.crm.client import CrmClient
 from app.services.influx.client import InfluxService
 from app.services.mqtt.client import MQTTService
 from app.services.realtime.state import RealtimeState
+from app.services.tariff.store import RemoteTariffStore
 from app.services.websocket.manager import ConnectionManager
 from app.websocket.routes import router as websocket_router
 
@@ -102,6 +104,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger.info("startup", app=settings.APP_NAME, environment=settings.ENVIRONMENT)
 
     app.state.token_blacklist = TokenBlacklist()
+
+    # Construcción, no conexión: CrmClient no habla con la red hasta el
+    # primer get_tariffs()/get_fleet() — el arranque no se bloquea esperando
+    # a CRMBackend, y si está caído, RemoteTariffStore degrada en vez de
+    # tumbar el proceso (ver app/services/tariff/store.py).
+    app.state.crm_client = CrmClient(settings)
+    app.state.remote_tariff_store = RemoteTariffStore(app.state.crm_client)
 
     influx = InfluxService(settings)
     await influx.connect()

@@ -150,3 +150,82 @@ async def test_login_raises_when_not_configured() -> None:
     assert client.configured is False
     with pytest.raises(CrmClientError):
         await client.get_tariffs()
+
+
+def _token_response() -> httpx.Response:
+    return httpx.Response(200, json={"access_token": "tok-1", "expires_in": 900, "permisos": []})
+
+
+async def test_get_fleet_returns_data_and_caches_etag() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/service/token"):
+            return _token_response()
+        assert "if-none-match" not in request.headers
+        return httpx.Response(
+            200,
+            json={"items": [{"nombre_empresa": "Empresa A"}], "total": 1},
+            headers={"ETag": '"v1"'},
+        )
+
+    client = CrmClient(_settings(), transport=httpx.MockTransport(handler))
+    data = await client.get_fleet(nivel="variables")
+
+    assert data["items"][0]["nombre_empresa"] == "Empresa A"
+
+
+async def test_get_fleet_304_returns_cached_payload_without_refetching_body() -> None:
+    calls = {"fleet": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/service/token"):
+            return _token_response()
+        calls["fleet"] += 1
+        if calls["fleet"] == 1:
+            return httpx.Response(
+                200, json={"items": ["first"], "total": 1}, headers={"ETag": '"v1"'}
+            )
+        assert request.headers["if-none-match"] == '"v1"'
+        return httpx.Response(304)
+
+    client = CrmClient(_settings(), transport=httpx.MockTransport(handler))
+    first = await client.get_fleet(nivel="equipos")
+    second = await client.get_fleet(nivel="equipos")
+
+    assert first == second == {"items": ["first"], "total": 1}
+    assert calls["fleet"] == 2
+
+
+async def test_get_fleet_304_without_prior_cache_raises() -> None:
+    """No debería pasar nunca en la práctica (el server no manda 304 sin
+    If-None-Match), pero si pasara, mejor un error claro que devolver None."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/service/token"):
+            return _token_response()
+        return httpx.Response(304)
+
+    client = CrmClient(_settings(), transport=httpx.MockTransport(handler))
+    with pytest.raises(CrmClientError):
+        await client.get_fleet()
+
+
+async def test_get_fleet_cache_key_includes_all_params() -> None:
+    """Pedir nivel=equipos después de nivel=variables no debe devolver el
+    árbol equivocado — cada combinación de parámetros tiene su propia
+    entrada de caché."""
+    requested_nivels: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/service/token"):
+            return _token_response()
+        nivel = request.url.params["nivel"]
+        requested_nivels.append(nivel)
+        return httpx.Response(200, json={"items": [], "total": 0, "nivel": nivel})
+
+    client = CrmClient(_settings(), transport=httpx.MockTransport(handler))
+    variables = await client.get_fleet(nivel="variables")
+    equipos = await client.get_fleet(nivel="equipos")
+
+    assert variables["nivel"] == "variables"
+    assert equipos["nivel"] == "equipos"
+    assert requested_nivels == ["variables", "equipos"]

@@ -3,6 +3,14 @@
 El usuario consulta la tarifa vigente en la web de su comercializador cada
 mes y la actualiza acá; se persiste en un archivo (ver TARIFF_CONFIG_PATH),
 no en `.env`.
+
+**Desacoplado de los costos reales desde la Fase 5**: `/costs`, `/reports` y
+`/analytics/summary` ya no leen este archivo — leen CRMBackend en vivo
+(`app/dependencies/tariff.py`, `RemoteTariffStore`). La credencial de
+servicio de ApiEMS es de solo lectura, así que este endpoint no puede
+escribir en CRMBackend — editar acá solo cambia este archivo local, que hoy
+no lo lee nadie más que este mismo endpoint. Pendiente decidir si se
+deprecia o pasa a ser un proxy hacia CRMBackend.
 """
 
 from typing import Annotated

@@ -52,6 +52,7 @@ async def _cost_for_period(
     description="Costo variable del día (importación x tarifa, menos exportación x crédito). "
     "Sin cargo fijo: no aplica a un solo día.",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/daily — mismo CostBreakdown, ya cacheado
 )
 async def day(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
@@ -68,6 +69,7 @@ async def day(  # pyright: ignore[reportUnusedFunction]
     summary="Costo de la semana",
     description="Costo variable de la semana en curso. Sin cargo fijo.",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/weekly
 )
 async def week(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
@@ -85,6 +87,7 @@ async def week(  # pyright: ignore[reportUnusedFunction]
     description="Costo del mes en curso, incluyendo cargo fijo (se factura completo "
     "sin importar cuántos días del mes hayan pasado).",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/monthly
 )
 async def month(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
@@ -102,6 +105,7 @@ async def month(  # pyright: ignore[reportUnusedFunction]
     description="Costo del año en curso, incluyendo el cargo fijo de cada mes ya "
     "transcurrido. Usa la tarifa vigente de CADA mes, no la actual.",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/yearly
 )
 async def year(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,

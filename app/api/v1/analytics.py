@@ -64,7 +64,12 @@ def _resolve_range(
     return start, stop
 
 
-@router.get("", summary="Resumen de analytics", response_model=ApiResponse[AnalyticsOverview])
+@router.get(
+    "",
+    summary="Resumen de analytics",
+    response_model=ApiResponse[AnalyticsOverview],
+    deprecated=True,  # subconjunto literal de /reports/daily (max_demand/load_factor/base_load)
+)
 async def analytics_overview(
     repo: RepoDep,
     settings: SettingsDep,

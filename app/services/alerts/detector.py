@@ -40,7 +40,9 @@ async def check_hourly(
     if value is None or value <= 0:
         return None
 
-    device_id = str(reading.device_id)
+    # identify_device (UUID por equipo) — mismo tag que filtra InfluxDB,
+    # único en toda la flota (ver InfluxRepository._DEVICE_FILTER).
+    device_id = reading.identify_device
     bands = await hourly_power_baseline(repo, device_id, settings.TIMEZONE)
     hour = local_hour(reading.timestamp, settings.TIMEZONE)
     band = bands.get(hour)

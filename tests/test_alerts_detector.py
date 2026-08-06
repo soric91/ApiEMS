@@ -45,7 +45,7 @@ async def test_check_hourly_detects_anomaly() -> None:
     assert alert.kind == "hourly_power"
     assert alert.severity == "high"
     assert alert.bucket == 10
-    assert alert.device_id == "11"
+    assert alert.device_id == "bf6a469f-4c2a-4402-9438-49a491ad2238"
 
 
 async def test_check_hourly_normal_value_no_alert() -> None:

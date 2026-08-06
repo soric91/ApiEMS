@@ -53,7 +53,7 @@ def test_subscribe_ack_and_current_value(client: TestClient, app: FastAPI) -> No
         current = ws.receive_json()
         assert current["type"] == "data"
         assert current["value"] == 120.4
-        assert current["device_id"] == "11"
+        assert current["device_id"] == "bf6a469f-4c2a-4402-9438-49a491ad2238"
 
 
 def test_only_subscribed_variable_is_delivered_on_broadcast(

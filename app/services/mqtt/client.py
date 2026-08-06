@@ -23,17 +23,20 @@ type ReadingHandler = Callable[[DeviceReading], Awaitable[None]]
 
 RECONNECT_SECONDS = 5
 
-# Tópico nuevo: "{MQTT_TOPIC}/{modbus_id}/{gateway_uuid}" — un nivel por
-# gateway, necesario para no perder mensajes de más de un gateway (el tópico
-# fijo de antes solo hacía match exacto, ninguno de estos sub-tópicos calzaba).
+# Tópico: "{MQTT_TOPIC}/{modbus_id}/{equipment_uuid}" — un nivel por gateway,
+# necesario para no perder mensajes de más de un gateway (el tópico fijo de
+# antes solo hacía match exacto, ninguno de estos sub-tópicos calzaba).
+# El UUID es del EQUIPO (confirmado: config real del script de adquisición
+# tiene `identify_device = <uuid>` por sección de equipo, no por gateway) —
+# el mismo valor que ya trae `identify_device` en el payload.
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
-_TOPIC_SUFFIX_SEGMENTS = 2  # {modbus_id}/{gateway_uuid}
+_TOPIC_SUFFIX_SEGMENTS = 2  # {modbus_id}/{equipment_uuid}
 
 
 def _parse_topic(topic: str, base_topic: str) -> tuple[int | None, str | None]:
-    """(modbus_id, gateway_uuid) desde el tópico, o (None, None) si no calza.
+    """(modbus_id, equipment_uuid) desde el tópico, o (None, None) si no calza.
 
     Tolerante a propósito: un tópico con forma inesperada no debe tumbar el
     consumidor, solo dejar esos dos campos vacíos (ver DeviceReading).
@@ -44,11 +47,11 @@ def _parse_topic(topic: str, base_topic: str) -> tuple[int | None, str | None]:
     parts = topic[len(prefix) :].split("/")
     if len(parts) != _TOPIC_SUFFIX_SEGMENTS:
         return None, None
-    modbus_id_str, gateway_uuid = parts
-    if not _UUID_RE.match(gateway_uuid):
+    modbus_id_str, equipment_uuid = parts
+    if not _UUID_RE.match(equipment_uuid):
         return None, None
     try:
-        return int(modbus_id_str), gateway_uuid
+        return int(modbus_id_str), equipment_uuid
     except ValueError:
         return None, None
 
@@ -113,11 +116,21 @@ class MQTTService:
             logger.warning("mqtt_payload_invalid", errors=exc.error_count())
             return
 
-        modbus_id, gateway_uuid = _parse_topic(str(message.topic), self._settings.MQTT_TOPIC)
-        if gateway_uuid is None:
+        modbus_id, equipment_uuid = _parse_topic(str(message.topic), self._settings.MQTT_TOPIC)
+        if equipment_uuid is None:
             logger.warning("mqtt_topic_unparseable", topic=str(message.topic))
         else:
-            reading.gateway_uuid = gateway_uuid
-            reading.modbus_id_from_topic = modbus_id
+            reading.equipment_uuid = equipment_uuid
+            reading.modbus_id = modbus_id
+            if equipment_uuid != reading.identify_device:
+                # El script debería taguear ambos con el mismo UUID de
+                # equipo — si difieren, hay una config desalineada en algún
+                # lado y conviene enterarse antes de que rompa el selector
+                # de medidores, no en silencio.
+                logger.warning(
+                    "mqtt_topic_identity_mismatch",
+                    topic_equipment_uuid=equipment_uuid,
+                    payload_identify_device=reading.identify_device,
+                )
 
         await self._handler(reading)

@@ -16,16 +16,21 @@ class RealtimeState:
         self._devices: dict[str, DeviceSnapshot] = {}
 
     def update(self, reading: DeviceReading) -> DeviceSnapshot:
+        # Identidad = identify_device (UUID por equipo, único en toda la
+        # flota — confirmado como tag real en InfluxDB, ver
+        # app/repositories/influx.py). El `device_id` entero del payload solo
+        # es único DENTRO de un gateway/bus: dos gateways distintos pueden
+        # reportar el mismo entero y colisionarían en este diccionario.
         snapshot = DeviceSnapshot(
-            device_id=str(reading.device_id),
+            device_id=reading.identify_device,
             device_name=reading.device_name,
             device_type=reading.device_type,
             identify_device=reading.identify_device,
             timestamp=reading.timestamp,
             received_at=datetime.now(tz=UTC),
             data=reading.data,
-            gateway_uuid=reading.gateway_uuid,
-            modbus_id_from_topic=reading.modbus_id_from_topic,
+            equipment_uuid=reading.equipment_uuid,
+            modbus_id=reading.modbus_id,
         )
         self._devices[snapshot.device_id] = snapshot
         return snapshot

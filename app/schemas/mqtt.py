@@ -1,4 +1,7 @@
-"""Payload real del script de adquisición (tópico gatewayems/modbus/{modbus_id}/{gateway_uuid})."""
+"""Payload real del script de adquisición.
+
+Tópico: gatewayems/modbus/{modbus_id}/{equipment_uuid}.
+"""
 
 from datetime import datetime
 
@@ -15,19 +18,12 @@ class DeviceReading(BaseModel):
     error: str | None = None
     data: dict[str, float]
     # Extraídos del tópico MQTT (no vienen en el JSON del payload), rellenados
-    # por MQTTService tras el parseo. `gateway_uuid` es el mismo UUID que usa
-    # CRMBackend para identificar el gateway (`Gateway.uuid`) — a diferencia
-    # de `device_id` (un entero de bus Modbus, único solo dentro de UN
-    # gateway), es estable y globalmente único entre gateways.
-    #
-    # Deliberadamente NO se usa todavía como identidad en RealtimeState/
-    # alerts/websocket: esas rutas correlacionan contra InfluxDB con
-    # `str(device_id)`, y el tag que InfluxDB realmente usa lo escribe el
-    # script de adquisición (fuera de este repo) — no hay forma de confirmar
-    # desde acá que coincide con `gateway_uuid` sin verlo en producción.
-    # Recablear la identidad sin esa confirmación arriesga romper en
-    # silencio la correlación de `check_hourly` (las bandas históricas
-    # dejarían de encontrar datos). Quedan disponibles para quien los
-    # necesite (ej. mostrar el gateway en el selector de medidores).
-    gateway_uuid: str | None = None
-    modbus_id_from_topic: int | None = None
+    # por MQTTService tras el parseo. Confirmado por config real del script de
+    # adquisición (sección `[Inversor_TCP] identify_device = <uuid>` por
+    # equipo, no por gateway): el UUID del tópico es del EQUIPO, el mismo
+    # valor que ya trae `identify_device` en el payload — no del gateway.
+    # Se guardan para el cross-check en `mqtt/client.py` (detectar config
+    # desalineada), no como fuente de identidad — esa sigue siendo
+    # `identify_device`, ya confirmado como tag real en InfluxDB.
+    equipment_uuid: str | None = None
+    modbus_id: int | None = None

@@ -15,20 +15,23 @@ READING = DeviceReading(
 )
 
 
+UUID = "bf6a469f-4c2a-4402-9438-49a491ad2238"
+
+
 def test_update_then_latest() -> None:
     state = RealtimeState()
     assert state.latest() == []
     state.update(READING)
     snapshots = state.latest()
     assert len(snapshots) == 1
-    assert snapshots[0].device_id == "11"
+    assert snapshots[0].device_id == UUID
     assert snapshots[0].data["VOLTAGE_A"] == 120.4
 
 
 def test_device_lookup() -> None:
     state = RealtimeState()
     state.update(READING)
-    assert state.device("11") is not None
+    assert state.device(UUID) is not None
     assert state.device("99") is None
 
 
@@ -38,7 +41,7 @@ def test_update_overwrites_same_device() -> None:
     updated = READING.model_copy(update={"data": {"VOLTAGE_A": 121.0}})
     state.update(updated)
     assert len(state.latest()) == 1
-    assert state.device("11").data["VOLTAGE_A"] == 121.0  # pyright: ignore[reportOptionalMemberAccess]
+    assert state.device(UUID).data["VOLTAGE_A"] == 121.0  # pyright: ignore[reportOptionalMemberAccess]
 
 
 def test_values_of_filters_by_variable() -> None:

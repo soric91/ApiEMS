@@ -24,6 +24,8 @@ class RealtimeState:
             timestamp=reading.timestamp,
             received_at=datetime.now(tz=UTC),
             data=reading.data,
+            gateway_uuid=reading.gateway_uuid,
+            modbus_id_from_topic=reading.modbus_id_from_topic,
         )
         self._devices[snapshot.device_id] = snapshot
         return snapshot

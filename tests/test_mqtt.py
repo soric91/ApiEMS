@@ -29,6 +29,7 @@ REAL_PAYLOAD = b"""{
 @dataclass
 class FakeMessage:
     payload: bytes
+    topic: str = "gatewayems/modbus/11/bf6a469f-4c2a-4402-9438-49a491ad2238"
 
 
 def make_service(handler_calls: list[DeviceReading]) -> MQTTService:
@@ -53,6 +54,29 @@ async def test_on_message_invokes_handler() -> None:
     await service._on_message(FakeMessage(REAL_PAYLOAD))  # pyright: ignore[reportArgumentType, reportPrivateUsage]
     assert len(calls) == 1
     assert calls[0].device_name == "Modbus_DTSU666_11"
+
+
+async def test_on_message_extracts_gateway_uuid_from_topic() -> None:
+    calls: list[DeviceReading] = []
+    service = make_service(calls)
+    message = FakeMessage(
+        REAL_PAYLOAD, topic="gatewayems/modbus/74/7d8704bd-5fe0-4686-972e-a71febc718d7"
+    )
+    await service._on_message(message)  # pyright: ignore[reportArgumentType, reportPrivateUsage]
+    assert calls[0].gateway_uuid == "7d8704bd-5fe0-4686-972e-a71febc718d7"
+    assert calls[0].modbus_id_from_topic == 74
+
+
+async def test_on_message_tolerates_unparseable_topic() -> None:
+    """Un tópico con forma inesperada no debe tumbar el consumidor — solo
+    gateway_uuid/modbus_id_from_topic quedan en None, el resto del payload
+    se entrega igual."""
+    calls: list[DeviceReading] = []
+    service = make_service(calls)
+    await service._on_message(FakeMessage(REAL_PAYLOAD, topic="algo/inesperado"))  # pyright: ignore[reportArgumentType, reportPrivateUsage]
+    assert len(calls) == 1
+    assert calls[0].gateway_uuid is None
+    assert calls[0].modbus_id_from_topic is None
 
 
 async def test_invalid_payload_ignored() -> None:

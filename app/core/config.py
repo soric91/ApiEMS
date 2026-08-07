@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     MQTT_PORT: int = 1883
     MQTT_USER: str = ""
     MQTT_PASSWORD: str = ""
+    # El puerto 1883 manda usuario y contraseña en claro. Por defecto en True
+    # para que un broker nuevo se conecte cifrado sin que nadie se acuerde de
+    # activarlo; apagarlo es una decisión explícita y solo tiene sentido en
+    # un broker local que no sale de la máquina.
+    MQTT_USE_TLS: bool = True
     MQTT_TOPIC: str = "gatewayems/modbus"
     MQTT_QOS: int = 1
     # Distinto al client_id del script de adquisición: IDs duplicados
@@ -62,6 +67,16 @@ class Settings(BaseSettings):
     # tiene sentido reiniciar el contenedor solo para actualizar un número.
     TARIFF_CONFIG_PATH: str = "data/tariffs.json"
 
+    # --- CRMBackend (Fase 5, prompt_arquitectura_v2.md) ---
+    # Credencial máquina-a-máquina real: POST /api/v1/service/token con
+    # client_id/client_secret devuelve un token de servicio (permiso
+    # tariffs:read), aceptado por GET /api/v1/tariffs. Emitida desde el panel
+    # de CRMBackend (POST /api/v1/service-accounts, solo admin) — no es una
+    # cuenta de usuario ni tiene email/password.
+    CRM_BASE_URL: str = ""
+    CRM_CLIENT_ID: str = ""
+    CRM_CLIENT_SECRET: str = ""
+
     @model_validator(mode="after")
     def _require_strong_secrets_in_production(self) -> "Settings":
         if self.ENVIRONMENT == "production":
@@ -69,6 +84,13 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET debe tener al menos 32 caracteres en producción")
             if not self.API_PASSWORD or self.API_PASSWORD == "changeme":
                 raise ValueError("API_PASSWORD debe definirse (y no ser 'changeme') en producción")
+            # Solo si se configuró CRM_BASE_URL: un secreto vacío o de ejemplo
+            # se detecta al arrancar, no en la primera petición de costos.
+            if self.CRM_BASE_URL and not self.CRM_CLIENT_SECRET.startswith("svcsec_"):
+                raise ValueError(
+                    "CRM_CLIENT_SECRET debe ser una credencial de servicio real "
+                    "('svcsec_...') cuando CRM_BASE_URL está configurado en producción"
+                )
         return self
 
     @property

@@ -7,7 +7,7 @@ from app.core.config import Settings
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.reports import ReportData, ReportPeriod
-from app.schemas.tariff import CostPeriod
+from app.schemas.tariff import CostPeriod, TariffConfig
 from app.services.analytics.base_load import base_load
 from app.services.analytics.common import auto_interval
 from app.services.analytics.demand import max_demand
@@ -15,10 +15,8 @@ from app.services.analytics.load_factor import load_factor
 from app.services.influx.cache import cached_energy_series, cached_energy_total
 from app.services.kpis.summary import compute_kpis
 from app.services.tariff.cost import compute_cost_from_points
-from app.services.tariff.store import load_tariff_config
 from app.utils.period import start_of_day, start_of_month, start_of_week, start_of_year
 
-_COST_WITH_CARGO_FIJO: frozenset[ReportPeriod] = frozenset({"monthly", "yearly", "custom"})
 _REPORT_TO_COST_PERIOD: dict[ReportPeriod, CostPeriod] = {
     "daily": "day",
     "weekly": "week",
@@ -48,6 +46,7 @@ async def build_report(
     settings: Settings,
     report_type: ReportPeriod,
     device_id: str | None,
+    tariff: TariffConfig,
     start: datetime | None = None,
     stop: datetime | None = None,
 ) -> ReportData:
@@ -78,12 +77,11 @@ async def build_report(
             repo, Variable.POWER_ACTIVE_TOTAL_NEG, period_start, period_end, device_id
         ),
     )
-    kpis, demand, load_factor_result, base_load_result, tariff = await asyncio.gather(
+    kpis, demand, load_factor_result, base_load_result = await asyncio.gather(
         compute_kpis(repo, settings, period_start, period_end, device_id),
         max_demand(repo, period_start, period_end, device_id),
         load_factor(repo, period_start, period_end, device_id),
         base_load(repo, period_start, period_end, device_id),
-        load_tariff_config(settings.TARIFF_CONFIG_PATH),
     )
     costs = compute_cost_from_points(
         tariff,
@@ -95,7 +93,6 @@ async def build_report(
         export_series,
         consumption_total,
         export_total,
-        include_cargo_fijo=report_type in _COST_WITH_CARGO_FIJO,
     )
 
     return ReportData(

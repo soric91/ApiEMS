@@ -12,6 +12,9 @@ wheels/
 # Secrets
 .env
 
+# Capturas pegadas al chat (Claude Code las guarda en el cwd del proyecto)
+Imagen pegada*.png
+
 # Tooling caches
 .ruff_cache/
 .pytest_cache/

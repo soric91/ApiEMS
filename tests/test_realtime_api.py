@@ -51,6 +51,10 @@ def test_device_found(client: TestClient, app: FastAPI) -> None:
     headers = _login(client)
     state: RealtimeState = app.state.realtime_state
     state.update(READING)
-    response = client.get("/api/v1/realtime/device", params={"device_id": "11"}, headers=headers)
+    response = client.get(
+        "/api/v1/realtime/device",
+        params={"device_id": "bf6a469f-4c2a-4402-9438-49a491ad2238"},
+        headers=headers,
+    )
     assert response.status_code == 200
     assert response.json()["data"]["device_name"] == "Modbus_DTSU666_11"

@@ -1,19 +1,7 @@
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
 from tests.fakes import FakeInfluxRepository
-
-
-@pytest.fixture(autouse=True)
-def tariff_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Aísla estos tests de `data/tariffs.json` real del proyecto."""
-    path = tmp_path / "tariffs.json"
-    monkeypatch.setenv("TARIFF_CONFIG_PATH", str(path))
-    get_settings.cache_clear()
-    return path
 
 
 def _login(client: TestClient) -> dict[str, str]:
@@ -44,7 +32,6 @@ def test_report_endpoints_return_data(
     assert "kpis" in body
     assert "max_demand" in body
     assert "costs" in body
-    assert body["costs"]["cargo_fijo_included"] is (period in {"monthly", "yearly"})
 
 
 def test_report_custom_requires_bounds(client: TestClient) -> None:

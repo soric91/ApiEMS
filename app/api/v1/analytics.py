@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import Settings, get_settings
 from app.dependencies.auth import CurrentUser
 from app.dependencies.influx import get_influx_repository
+from app.dependencies.tariff import get_tariff_config
 from app.models.variables import Variable
 from app.repositories.influx import InfluxRepository
 from app.schemas.analytics import (
@@ -28,6 +29,7 @@ from app.schemas.analytics import (
     WeekdayProfilePoint,
 )
 from app.schemas.common import ApiResponse
+from app.schemas.tariff import TariffConfig
 from app.services.analytics.base_load import DEFAULT_PERCENTILE, base_load
 from app.services.analytics.compare import compare_periods
 from app.services.analytics.demand import max_demand
@@ -47,6 +49,7 @@ SUMMARY_LOOKBACK_DAYS = 30
 
 RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+TariffDep = Annotated[TariffConfig, Depends(get_tariff_config)]
 FromQuery = Annotated[
     datetime | None, Query(alias="from", description="Inicio del rango (UTC). Por defecto: hoy.")
 ]
@@ -64,7 +67,12 @@ def _resolve_range(
     return start, stop
 
 
-@router.get("", summary="Resumen de analytics", response_model=ApiResponse[AnalyticsOverview])
+@router.get(
+    "",
+    summary="Resumen de analytics",
+    response_model=ApiResponse[AnalyticsOverview],
+    deprecated=True,  # subconjunto literal de /reports/daily (max_demand/load_factor/base_load)
+)
 async def analytics_overview(
     repo: RepoDep,
     settings: SettingsDep,
@@ -222,6 +230,7 @@ async def analytics_compare(
 async def analytics_summary_endpoint(
     repo: RepoDep,
     settings: SettingsDep,
+    tariff: TariffDep,
     _user: CurrentUser,
     from_: FromQuery = None,
     to: ToQuery = None,
@@ -237,4 +246,6 @@ async def analytics_summary_endpoint(
     stop = to or now
     if start >= stop:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "'from' debe ser anterior a 'to'")
-    return ApiResponse(data=await analytics_summary(repo, settings, start, stop, device_id))
+    return ApiResponse(
+        data=await analytics_summary(repo, settings, start, stop, device_id, tariff)
+    )

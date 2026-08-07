@@ -20,8 +20,13 @@ PAYLOAD = (
 
 
 class FakeMessage:
-    def __init__(self, payload: bytes) -> None:
+    def __init__(
+        self,
+        payload: bytes,
+        topic: str = "gatewayems/modbus/1/bf6a469f-4c2a-4402-9438-49a491ad2238",
+    ) -> None:
         self.payload = payload
+        self.topic = topic
 
 
 class _MessagesIterator:

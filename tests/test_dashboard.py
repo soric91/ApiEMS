@@ -55,7 +55,7 @@ def test_dashboard_returns_instant_plus_energy(
     response = client.get("/api/v1/dashboard", headers=headers)
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["device_id"] == "11"
+    assert data["device_id"] == "bf6a469f-4c2a-4402-9438-49a491ad2238"
     assert data["power_active_total_w"] == -442.2
     assert data["voltage_a"] == 120.4
     assert data["consumption_today_kwh"] == 3.2
@@ -74,9 +74,13 @@ def test_dashboard_explicit_device_id_found(client: TestClient, app: FastAPI) ->
     headers = _login(client)
     state: RealtimeState = app.state.realtime_state
     state.update(READING)
-    response = client.get("/api/v1/dashboard", params={"device_id": "11"}, headers=headers)
+    response = client.get(
+        "/api/v1/dashboard",
+        params={"device_id": "bf6a469f-4c2a-4402-9438-49a491ad2238"},
+        headers=headers,
+    )
     assert response.status_code == 200
-    assert response.json()["data"]["device_id"] == "11"
+    assert response.json()["data"]["device_id"] == "bf6a469f-4c2a-4402-9438-49a491ad2238"
 
 
 def test_dashboard_cards_shape(client: TestClient, app: FastAPI) -> None:

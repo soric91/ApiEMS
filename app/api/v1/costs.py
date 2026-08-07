@@ -1,7 +1,7 @@
 """Costo/crédito en COP: consumo importado por su tarifa, exportación como
-crédito, cargo fijo cuando aplica. Deriva de /consumption, /export y la
-tarifa configurada — no es una medición nueva, es aritmética sobre kWh ya
-calculados."""
+crédito (dos tramos — ver app/services/tariff/cost.py). Deriva de
+/consumption, /export y la tarifa configurada — no es una medición nueva,
+es aritmética sobre kWh ya calculados."""
 
 import asyncio
 from datetime import datetime
@@ -49,9 +49,9 @@ async def _cost_for_period(
 @router.get(
     "/day",
     summary="Costo de hoy",
-    description="Costo variable del día (importación x tarifa, menos exportación x crédito). "
-    "Sin cargo fijo: no aplica a un solo día.",
+    description="Costo del día (importación x tarifa, menos crédito de exportación).",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/daily — mismo CostBreakdown, ya cacheado
 )
 async def day(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
@@ -66,8 +66,9 @@ async def day(  # pyright: ignore[reportUnusedFunction]
 @router.get(
     "/week",
     summary="Costo de la semana",
-    description="Costo variable de la semana en curso. Sin cargo fijo.",
+    description="Costo de la semana en curso.",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/weekly
 )
 async def week(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
@@ -82,9 +83,9 @@ async def week(  # pyright: ignore[reportUnusedFunction]
 @router.get(
     "/month",
     summary="Costo del mes",
-    description="Costo del mes en curso, incluyendo cargo fijo (se factura completo "
-    "sin importar cuántos días del mes hayan pasado).",
+    description="Costo del mes en curso.",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/monthly
 )
 async def month(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
@@ -99,9 +100,9 @@ async def month(  # pyright: ignore[reportUnusedFunction]
 @router.get(
     "/year",
     summary="Costo del año",
-    description="Costo del año en curso, incluyendo el cargo fijo de cada mes ya "
-    "transcurrido. Usa la tarifa vigente de CADA mes, no la actual.",
+    description="Costo del año en curso. Usa la tarifa vigente de CADA mes, no la actual.",
     response_model=ApiResponse[CostBreakdown],
+    deprecated=True,  # usar /reports/yearly
 )
 async def year(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
@@ -116,10 +117,7 @@ async def year(  # pyright: ignore[reportUnusedFunction]
 @router.get(
     "/range",
     summary="Costo de un rango arbitrario",
-    description="Costo entre `from` y `to` (rango libre, ej. para Analytics o comparaciones). "
-    "Incluye cargo fijo de cada mes calendario que el rango toca — a diferencia de "
-    "day/week, un rango custom es una elección explícita del usuario, no una vista "
-    "automática parcial.",
+    description="Costo entre `from` y `to` (rango libre, ej. para Analytics o comparaciones).",
     response_model=ApiResponse[CostBreakdown],
     responses={400: {"description": "Rango inválido"}},
 )
@@ -152,6 +150,5 @@ async def cost_range(  # pyright: ignore[reportUnusedFunction]
         export_series,
         consumption_total,
         export_total,
-        include_cargo_fijo=True,
     )
     return ApiResponse(data=breakdown)

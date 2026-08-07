@@ -27,7 +27,7 @@ def _login(client: TestClient) -> dict[str, str]:
 
 def test_tariff_requires_auth(client: TestClient, tariff_path: Path) -> None:
     assert client.get("/api/v1/tariff").status_code == 401
-    assert client.put("/api/v1/tariff", json={"excedente_cop_kwh": 1.0}).status_code == 401
+    assert client.put("/api/v1/tariff", json={}).status_code == 401
 
 
 def test_get_tariff_empty_when_no_file(client: TestClient, tariff_path: Path) -> None:
@@ -40,9 +40,10 @@ def test_get_tariff_empty_when_no_file(client: TestClient, tariff_path: Path) ->
 def test_put_then_get_roundtrip(client: TestClient, tariff_path: Path) -> None:
     headers = _login(client)
     payload = {
-        "excedente_cop_kwh": 114.34,
         "umbral_cs_kwh": 130.0,
-        "periods": [{"month": "2026-01", "cu_cop_kwh": 859.19, "cargo_fijo_cop": 9090.0}],
+        "periods": [
+            {"month": "2026-01", "cu_cop_kwh": 859.19, "excedente_cop_kwh": 114.34}
+        ],
     }
     put_response = client.put("/api/v1/tariff", json=payload, headers=headers)
     assert put_response.status_code == 200
@@ -57,8 +58,9 @@ def test_put_then_get_roundtrip(client: TestClient, tariff_path: Path) -> None:
 def test_put_invalid_month_format_rejected(client: TestClient, tariff_path: Path) -> None:
     headers = _login(client)
     payload = {
-        "excedente_cop_kwh": 100.0,
-        "periods": [{"month": "2026-13", "cu_cop_kwh": 100.0, "cargo_fijo_cop": 1000.0}],
+        "periods": [
+            {"month": "2026-13", "cu_cop_kwh": 100.0, "excedente_cop_kwh": 10.0}
+        ],
     }
     response = client.put("/api/v1/tariff", json=payload, headers=headers)
     assert response.status_code == 422
@@ -67,14 +69,16 @@ def test_put_invalid_month_format_rejected(client: TestClient, tariff_path: Path
 def test_put_replaces_full_config_not_merge(client: TestClient, tariff_path: Path) -> None:
     headers = _login(client)
     first = {
-        "excedente_cop_kwh": 100.0,
-        "periods": [{"month": "2026-01", "cu_cop_kwh": 800.0, "cargo_fijo_cop": 9000.0}],
+        "periods": [
+            {"month": "2026-01", "cu_cop_kwh": 800.0, "excedente_cop_kwh": 100.0}
+        ],
     }
     client.put("/api/v1/tariff", json=first, headers=headers)
 
     second = {
-        "excedente_cop_kwh": 120.0,
-        "periods": [{"month": "2026-02", "cu_cop_kwh": 801.24, "cargo_fijo_cop": 9197.0}],
+        "periods": [
+            {"month": "2026-02", "cu_cop_kwh": 801.24, "excedente_cop_kwh": 120.0}
+        ],
     }
     client.put("/api/v1/tariff", json=second, headers=headers)
 

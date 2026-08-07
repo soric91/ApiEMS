@@ -70,7 +70,12 @@ from(bucket: _bucket)
   |> filter(fn: (r) => r._field == _field)
 """
 
-_DEVICE_FILTER = "  |> filter(fn: (r) => r.device_id == _device_id)\n"
+# El script de adquisición tagea cada punto con `device_id` (entero, único
+# solo DENTRO de un gateway/bus) e `identify_device` (UUID, único en toda la
+# flota — confirmado en vivo contra InfluxDB). El parámetro público de la API
+# se sigue llamando `device_id`, pero internamente filtra por el tag
+# `identify_device`: es el único que no colisiona entre gateways.
+_DEVICE_FILTER = "  |> filter(fn: (r) => r.identify_device == _device_id)\n"
 
 
 class InfluxRepository:
@@ -218,7 +223,7 @@ class InfluxRepository:
     async def list_device_ids(self, lookback: timedelta = timedelta(days=30)) -> list[str]:
         flux = """
 import "influxdata/influxdb/schema"
-schema.tagValues(bucket: _bucket, tag: "device_id", start: _start)
+schema.tagValues(bucket: _bucket, tag: "identify_device", start: _start)
 """
         params: dict[str, Any] = {"_bucket": self._bucket, "_start": -lookback}
         tables = await self._query(flux, params)

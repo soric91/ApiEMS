@@ -39,6 +39,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
             "hasta ahora. Desglose por hora."
         ),
         response_model=ApiResponse[EnergySummary],
+        deprecated=True,  # usar /reports/daily — mismo dato, ya cacheado junto a costos/kpis
     )
     async def day(  # pyright: ignore[reportUnusedFunction]
         repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None
@@ -50,6 +51,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
         summary=f"{noun} de la semana",
         description=f"{noun} desde el lunes de esta semana hasta ahora. Desglose diario.",
         response_model=ApiResponse[EnergySummary],
+        deprecated=True,  # usar /reports/weekly
     )
     async def week(  # pyright: ignore[reportUnusedFunction]
         repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None
@@ -61,6 +63,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
         summary=f"{noun} del mes",
         description=f"{noun} desde el día 1 del mes hasta ahora. Desglose diario.",
         response_model=ApiResponse[EnergySummary],
+        deprecated=True,  # usar /reports/monthly
     )
     async def month(  # pyright: ignore[reportUnusedFunction]
         repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None
@@ -75,6 +78,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
             "(totales exactos por mes calendario, no ventanas de duración fija)."
         ),
         response_model=ApiResponse[EnergySummary],
+        deprecated=True,  # usar /reports/yearly
     )
     async def year(  # pyright: ignore[reportUnusedFunction]
         repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None

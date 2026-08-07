@@ -36,8 +36,10 @@ async def compute_kpis(
         power_points,
         voltage_a_points,
         voltage_b_points,
+        voltage_c_points,
         current_a_points,
         current_b_points,
+        current_c_points,
         pf_points,
     ) = await asyncio.gather(
         cached_instant_series(
@@ -45,16 +47,22 @@ async def compute_kpis(
         ),
         cached_instant_series(repo, Variable.VOLTAGE_A, start, stop, every, device_id=device_id),
         cached_instant_series(repo, Variable.VOLTAGE_B, start, stop, every, device_id=device_id),
+        cached_instant_series(repo, Variable.VOLTAGE_C, start, stop, every, device_id=device_id),
         cached_instant_series(repo, Variable.CURRENT_A, start, stop, every, device_id=device_id),
         cached_instant_series(repo, Variable.CURRENT_B, start, stop, every, device_id=device_id),
+        cached_instant_series(repo, Variable.CURRENT_C, start, stop, every, device_id=device_id),
         cached_instant_series(
             repo, Variable.FACTOR_POTENCIA_TOTAL, start, stop, every, device_id=device_id
         ),
     )
 
+    # Un medidor monofásico/bifásico simplemente no reporta la fase C — la serie
+    # llega vacía y no distorsiona el promedio pooled de las fases que sí existen.
     power_avg, power_max, _ = _stats(power_points)
-    voltage_avg, voltage_max, voltage_min = _stats(voltage_a_points + voltage_b_points)
-    current_avg, _, _ = _stats(current_a_points + current_b_points)
+    voltage_avg, voltage_max, voltage_min = _stats(
+        voltage_a_points + voltage_b_points + voltage_c_points
+    )
+    current_avg, _, _ = _stats(current_a_points + current_b_points + current_c_points)
     pf_avg, _, _ = _stats(pf_points)
 
     now = datetime.now(tz=UTC)

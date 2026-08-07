@@ -78,7 +78,9 @@ def _data_message(reading: DeviceReading, variable: Variable) -> dict[str, Any]:
         "type": "data",
         "variable": variable.value,
         "value": reading.data[variable.value],
-        "device_id": str(reading.device_id),
+        # identify_device (UUID por equipo) — mismo valor que usa el filtro
+        # de InfluxDB, único en toda la flota (ver RealtimeState.update()).
+        "device_id": reading.identify_device,
         "device_name": reading.device_name,
         "timestamp": reading.timestamp.isoformat(),
     }

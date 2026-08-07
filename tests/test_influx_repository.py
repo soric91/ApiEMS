@@ -68,7 +68,7 @@ async def test_instant_series_parameterized(repo: InfluxRepository, fake_api: Fa
     assert "11" not in fake_api.flux
     assert "VOLTAGE_A" not in fake_api.flux
     assert "fn: max" in fake_api.flux
-    assert "r.device_id == _device_id" in fake_api.flux
+    assert "r.identify_device == _device_id" in fake_api.flux
 
 
 async def test_instant_series_without_device_filter(
@@ -179,7 +179,7 @@ async def test_last_value_returns_most_recent_point(
     assert point.time == START + HOUR
     assert fake_api.flux is not None
     assert "|> last()" in fake_api.flux
-    assert "r.device_id == _device_id" in fake_api.flux
+    assert "r.identify_device == _device_id" in fake_api.flux
 
 
 async def test_last_value_none_when_empty(repo: InfluxRepository) -> None:

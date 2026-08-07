@@ -20,7 +20,12 @@ RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-@router.get("", summary="KPIs del periodo", response_model=ApiResponse[KpiSummary])
+@router.get(
+    "",
+    summary="KPIs del periodo",
+    response_model=ApiResponse[KpiSummary],
+    deprecated=True,  # usar reports.kpis en /reports/{daily,weekly,monthly,yearly,custom}
+)
 async def kpis(
     repo: RepoDep,
     settings: SettingsDep,

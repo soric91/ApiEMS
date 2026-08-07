@@ -90,6 +90,13 @@ class MQTTService:
                     password=settings.MQTT_PASSWORD or None,
                     identifier=settings.MQTT_CLIENT_ID,
                     clean_session=False,  # el broker retiene mensajes QoS1 si nos caemos
+                    # Sin esto la conexión va en claro aunque el puerto sea el
+                    # 8883, y el broker la corta: TLS no se negocia sobre MQTT,
+                    # se establece antes. TLSParameters() por defecto usa los
+                    # certificados raíz del sistema y verifica el hostname.
+                    tls_params=(
+                        aiomqtt.TLSParameters() if settings.MQTT_USE_TLS else None
+                    ),
                 ) as client:
                     wildcard_topic = f"{settings.MQTT_TOPIC.rstrip('/')}/+/+"
                     await client.subscribe(wildcard_topic, qos=settings.MQTT_QOS)
@@ -97,6 +104,8 @@ class MQTTService:
                     logger.info(
                         "mqtt_connected",
                         host=settings.MQTT_HOST,
+                        port=settings.MQTT_PORT,
+                        tls=settings.MQTT_USE_TLS,
                         topic=wildcard_topic,
                         qos=settings.MQTT_QOS,
                     )

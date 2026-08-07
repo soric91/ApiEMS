@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     MQTT_PORT: int = 1883
     MQTT_USER: str = ""
     MQTT_PASSWORD: str = ""
+    # El puerto 1883 manda usuario y contraseña en claro. Por defecto en True
+    # para que un broker nuevo se conecte cifrado sin que nadie se acuerde de
+    # activarlo; apagarlo es una decisión explícita y solo tiene sentido en
+    # un broker local que no sale de la máquina.
+    MQTT_USE_TLS: bool = True
     MQTT_TOPIC: str = "gatewayems/modbus"
     MQTT_QOS: int = 1
     # Distinto al client_id del script de adquisición: IDs duplicados

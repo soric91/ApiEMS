@@ -6,20 +6,26 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "aiomqtt>=2.5.1",
+    # Runtime, no solo tests: app/services/crm/client.py habla con CRMBackend
+    # y se importa desde main.py. Como dependencia de dev, la imagen de Docker
+    # arranca sin ella y muere con ModuleNotFoundError.
+    "httpx>=0.28.1",
     "cachetools>=7.1.4",
     "fastapi>=0.139.2",
     "influxdb-client[async]>=1.50.0",
     "orjson>=3.11.9",
     "polars>=1.42.1",
     "pydantic-settings>=2.14.2",
-    "pyjwt>=2.13.0",
+    # [crypto] trae `cryptography`: verificar RS256 contra el JWKS del CRM lo
+    # necesita. Sin el extra, PyJWT solo sabe HMAC y todo token del CRM se
+    # rechaza con MissingCryptographyError disfrazado de "token inválido".
+    "pyjwt[crypto]>=2.13.0",
     "structlog>=26.1.0",
     "uvicorn[standard]>=0.51.0",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "httpx2>=2.7.0",
     "pre-commit>=4.6.0",
     "pyright>=1.1.411",

@@ -12,14 +12,6 @@ from app.schemas.tariff import TariffConfig, TariffPeriod
 from tests.fakes import FakeInfluxRepository
 
 
-def _login(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/login", json={"username": "testuser", "password": "testpass"}
-    )
-    token = response.json()["data"]["access_token"]
-    return {"Authorization": f"Bearer {token}"}
-
-
 def _seed_current_month_tariff(app: FastAPI) -> str:
     now = datetime.now(tz=UTC)
     month = f"{now.year:04d}-{now.month:02d}"
@@ -35,9 +27,10 @@ def test_costs_requires_auth(client: TestClient) -> None:
         assert client.get(f"/api/v1/costs/{period}").status_code == 401
 
 
-def test_costs_month_without_tariff_returns_zero_and_flags_stale(client: TestClient) -> None:
-    headers = _login(client)
-    response = client.get("/api/v1/costs/month", headers=headers)
+def test_costs_month_without_tariff_returns_zero_and_flags_stale(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get("/api/v1/costs/month", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()["data"]
     assert body["consumption_cost_cop"] == 0.0
@@ -46,7 +39,10 @@ def test_costs_month_without_tariff_returns_zero_and_flags_stale(client: TestCli
 
 
 def test_costs_day_computes_from_series(
-    app: FastAPI, client: TestClient, fake_influx_repo: FakeInfluxRepository
+    app: FastAPI,
+    client: TestClient,
+    fake_influx_repo: FakeInfluxRepository,
+    auth_headers: dict[str, str],
 ) -> None:
     month = _seed_current_month_tariff(app)
     now = datetime.now(tz=UTC)
@@ -55,8 +51,7 @@ def test_costs_day_computes_from_series(
         Variable.POWER_ACTIVE_TOTAL_NEG: [EnergyPoint(time=now, value=2.0)],
     }
 
-    headers = _login(client)
-    response = client.get("/api/v1/costs/day", headers=headers)
+    response = client.get("/api/v1/costs/day", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()["data"]
     assert body["consumption_cost_cop"] == round(10.0 * 859.19, 2)
@@ -67,7 +62,10 @@ def test_costs_day_computes_from_series(
 
 
 def test_costs_export_beyond_import_uses_tier2_rate(
-    app: FastAPI, client: TestClient, fake_influx_repo: FakeInfluxRepository
+    app: FastAPI,
+    client: TestClient,
+    fake_influx_repo: FakeInfluxRepository,
+    auth_headers: dict[str, str],
 ) -> None:
     _seed_current_month_tariff(app)
     now = datetime.now(tz=UTC)
@@ -76,8 +74,7 @@ def test_costs_export_beyond_import_uses_tier2_rate(
         Variable.POWER_ACTIVE_TOTAL_NEG: [EnergyPoint(time=now, value=20.0)],
     }
 
-    headers = _login(client)
-    response = client.get("/api/v1/costs/month", headers=headers)
+    response = client.get("/api/v1/costs/month", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()["data"]
     # 5 kWh (tramo 1, precio importación) + 15 kWh (tramo 2, precio excedente)
@@ -86,9 +83,8 @@ def test_costs_export_beyond_import_uses_tier2_rate(
     assert body["net_cost_cop"] == round(5.0 * 859.19 - expected_credit, 2)
 
 
-def test_costs_year_shape(client: TestClient) -> None:
-    headers = _login(client)
-    response = client.get("/api/v1/costs/year", headers=headers)
+def test_costs_year_shape(client: TestClient, auth_headers: dict[str, str]) -> None:
+    response = client.get("/api/v1/costs/year", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()["data"]
     assert body["period"] == "year"
@@ -103,18 +99,22 @@ def test_costs_range_requires_auth(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_costs_range_rejects_inverted_bounds(client: TestClient) -> None:
-    headers = _login(client)
+def test_costs_range_rejects_inverted_bounds(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     response = client.get(
         "/api/v1/costs/range",
         params={"from": "2026-01-31T00:00:00Z", "to": "2026-01-01T00:00:00Z"},
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 400
 
 
 def test_costs_range_computes_series(
-    app: FastAPI, client: TestClient, fake_influx_repo: FakeInfluxRepository
+    app: FastAPI,
+    client: TestClient,
+    fake_influx_repo: FakeInfluxRepository,
+    auth_headers: dict[str, str],
 ) -> None:
     config = TariffConfig(
         periods=[TariffPeriod(month="2026-01", cu_cop_kwh=859.19, excedente_cop_kwh=114.34)],
@@ -130,11 +130,10 @@ def test_costs_range_computes_series(
         Variable.POWER_ACTIVE_TOTAL_NEG: 0.0,
     }
 
-    headers = _login(client)
     response = client.get(
         "/api/v1/costs/range",
         params={"from": "2026-01-01T00:00:00Z", "to": "2026-01-31T00:00:00Z"},
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 200
     body = response.json()["data"]

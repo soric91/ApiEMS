@@ -10,11 +10,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.config import Settings, get_settings
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.dependencies.tariff import get_tariff_config
 from app.models.variables import Variable
-from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.energy import Period
 from app.schemas.tariff import CostBreakdown, TariffConfig
@@ -25,7 +25,7 @@ from app.services.tariff.cost import compute_cost, compute_cost_from_points
 
 router = APIRouter(prefix="/costs", tags=["Costs"])
 
-RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
+RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 TariffDep = Annotated[TariffConfig, Depends(get_tariff_config)]
 FromQuery = Annotated[datetime, Query(alias="from", description="Inicio del rango (UTC, ISO 8601)")]
@@ -34,7 +34,7 @@ ToQuery = Annotated[datetime, Query(description="Fin del rango (UTC, ISO 8601)")
 
 async def _cost_for_period(
     period: Period,
-    repo: InfluxRepository,
+    repo: ScopedInfluxRepository,
     settings: Settings,
     tariff: TariffConfig,
     device_id: str | None,
@@ -57,7 +57,7 @@ async def day(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
     settings: SettingsDep,
     tariff: TariffDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     device_id: str | None = None,
 ) -> ApiResponse[CostBreakdown]:
     return await _cost_for_period("day", repo, settings, tariff, device_id)
@@ -74,7 +74,7 @@ async def week(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
     settings: SettingsDep,
     tariff: TariffDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     device_id: str | None = None,
 ) -> ApiResponse[CostBreakdown]:
     return await _cost_for_period("week", repo, settings, tariff, device_id)
@@ -91,7 +91,7 @@ async def month(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
     settings: SettingsDep,
     tariff: TariffDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     device_id: str | None = None,
 ) -> ApiResponse[CostBreakdown]:
     return await _cost_for_period("month", repo, settings, tariff, device_id)
@@ -108,7 +108,7 @@ async def year(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
     settings: SettingsDep,
     tariff: TariffDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     device_id: str | None = None,
 ) -> ApiResponse[CostBreakdown]:
     return await _cost_for_period("year", repo, settings, tariff, device_id)
@@ -125,7 +125,7 @@ async def cost_range(  # pyright: ignore[reportUnusedFunction]
     repo: RepoDep,
     settings: SettingsDep,
     tariff: TariffDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery,
     to: ToQuery,
     device_id: str | None = None,

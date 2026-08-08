@@ -14,7 +14,7 @@ from app.services.mqtt.client import MQTTService
 
 PAYLOAD = (
     b'{"device_name":"d","device_id":1,"identify_device":"x",'
-    b'"timestamp":"2026-01-01T00:00:00+00:00","data":{"VOLTAGE_A":120.0},'
+    b'"timestamp":"2026-01-01T00:00:00+00:00","data":{"PhV_phsA":120.0},'
     b'"success":true,"device_type":"CT_Meter","error":null}'
 )
 
@@ -30,20 +30,29 @@ class FakeMessage:
 
 
 class _MessagesIterator:
-    def __init__(self, messages: list[FakeMessage]) -> None:
+    def __init__(
+        self, messages: list[FakeMessage], al_agotarse: Exception | None = None
+    ) -> None:
         self._messages = messages
+        self._al_agotarse = al_agotarse
 
     def __aiter__(self) -> "_MessagesIterator":
         return self
 
     async def __anext__(self) -> FakeMessage:
         if not self._messages:
+            if self._al_agotarse is not None:
+                raise self._al_agotarse
             await asyncio.sleep(3600)  # agota mensajes: el test cancela la task antes
             raise StopAsyncIteration
         return self._messages.pop(0)
 
 
-def _make_fake_client(attempts_before_success: int) -> tuple[type, dict[str, int]]:
+def _make_fake_client(
+    attempts_before_success: int,
+    mensajes: int = 1,
+    stream_falla: Exception | None = None,
+) -> tuple[type, dict[str, int]]:
     state = {"attempt": 0, "subscribed": 0}
 
     class FakeMqttClient:
@@ -64,7 +73,9 @@ def _make_fake_client(attempts_before_success: int) -> tuple[type, dict[str, int
 
         @property
         def messages(self) -> _MessagesIterator:
-            return _MessagesIterator([FakeMessage(PAYLOAD)])
+            return _MessagesIterator(
+                [FakeMessage(PAYLOAD) for _ in range(mensajes)], stream_falla
+            )
 
     return FakeMqttClient, state
 
@@ -101,6 +112,88 @@ async def test_reconnects_after_failure_then_delivers_message(
     assert received[0].device_name == "d"
 
     await service.stop()
+    assert service.connected is False
+
+
+async def test_un_handler_que_falla_no_se_lleva_el_consumidor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lo que rompió el relay en producción: InfluxDB caído mataba MQTT.
+
+    El handler consulta InfluxDB para evaluar alertas. Cuando esa consulta
+    reventaba, la excepción salía del `async for`, el `except MqttError` no la
+    agarraba —no es un error de MQTT— y la task moría. No había desconexión ni
+    reintento: simplemente no volvía a llegar un mensaje nunca más, y
+    `connected` seguía diciendo `True`.
+
+    Se pierde la lectura que falló. Solo esa.
+    """
+    fake_client_cls, _ = _make_fake_client(attempts_before_success=0, mensajes=3)
+    monkeypatch.setattr("app.services.mqtt.client.aiomqtt.Client", fake_client_cls)
+    monkeypatch.setattr("app.services.mqtt.client.RECONNECT_SECONDS", 0)
+
+    intentos: list[DeviceReading] = []
+    entregados: list[DeviceReading] = []
+
+    async def handler(reading: DeviceReading) -> None:
+        intentos.append(reading)
+        if len(intentos) == 1:
+            raise RuntimeError("influxdb no responde")
+        entregados.append(reading)
+
+    service = MQTTService(_settings(), handler)
+    await service.start()
+    for _ in range(50):
+        if len(entregados) == 2:
+            break
+        await asyncio.sleep(0.02)
+
+    assert len(intentos) == 3  # el primero falló y los otros dos siguieron
+    assert len(entregados) == 2
+    assert service.connected is True
+
+    await service.stop()
+
+
+async def test_si_el_consumidor_muere_connected_deja_de_mentir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`create_task` se traga la excepción: sin el callback nadie se entera.
+
+    La falla llega DESPUÉS de conectar y suscribir —la levanta el propio stream
+    de mensajes, no el handler, así que el `except` por mensaje no la ve— con
+    `_connected` ya en `True`. Que la task termine es aceptable; que
+    `/health` siga informando MQTT conectado sin que entre un dato, no.
+    """
+    fake_client_cls, _ = _make_fake_client(
+        attempts_before_success=0, stream_falla=ValueError("stream roto")
+    )
+    monkeypatch.setattr("app.services.mqtt.client.aiomqtt.Client", fake_client_cls)
+    monkeypatch.setattr("app.services.mqtt.client.RECONNECT_SECONDS", 0)
+
+    # Se mira desde adentro del handler y no después: la task muere apenas se
+    # agotan los mensajes, así que para cuando el test despierte ya podría
+    # estar en False y el chequeo no distinguiría nada.
+    conectado_mientras_corria: list[bool] = []
+
+    async def handler(_reading: DeviceReading) -> None:
+        conectado_mientras_corria.append(service.connected)
+
+    service = MQTTService(_settings(), handler)
+    await service.start()
+    for _ in range(50):
+        if conectado_mientras_corria:
+            break
+        await asyncio.sleep(0.02)
+    # Sin esto el test pasaría vacío: `connected` arranca en False, así que
+    # afirmarlo sin haber conectado antes no prueba nada.
+    assert conectado_mientras_corria == [True]
+
+    for _ in range(50):
+        if not service.connected:
+            break
+        await asyncio.sleep(0.02)
+
     assert service.connected is False
 
 

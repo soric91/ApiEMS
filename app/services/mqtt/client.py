@@ -69,6 +69,22 @@ class MQTTService:
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name="mqtt-consumer")
+        self._task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        """El consumidor no debería terminar nunca; si termina, que se sepa.
+
+        `create_task` guarda la excepción dentro del Task y no la levanta en
+        ningún lado: sin esto el consumidor muere en silencio y `connected`
+        sigue diciendo `True`, así que `/health` informa que MQTT anda mientras
+        hace rato que no entra un solo mensaje.
+        """
+        self._connected = False
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error("mqtt_consumer_muerto", error=str(exc), tipo=type(exc).__name__)
 
     async def stop(self) -> None:
         if self._task is not None:
@@ -110,7 +126,21 @@ class MQTTService:
                         qos=settings.MQTT_QOS,
                     )
                     async for message in client.messages:
-                        await self._on_message(message)
+                        # Un mensaje que falla no puede llevarse el loop. Sin
+                        # este `except`, cualquier error del handler —InfluxDB
+                        # caído al evaluar alertas, por ejemplo— sale del `async
+                        # for`, no lo agarra el `except MqttError` de abajo, y
+                        # el consumidor muere: se corta el relay para SIEMPRE,
+                        # sin desconexión ni reintento, después de UN mensaje
+                        # malo. Se pierde esa lectura, no las siguientes.
+                        try:
+                            await self._on_message(message)
+                        except Exception as exc:
+                            logger.exception(
+                                "mqtt_mensaje_fallido",
+                                topic=str(message.topic),
+                                error=str(exc),
+                            )
             except aiomqtt.MqttError as exc:
                 self._connected = False
                 logger.warning(

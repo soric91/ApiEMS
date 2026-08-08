@@ -11,14 +11,14 @@ REAL_PAYLOAD = b"""{
   "identify_device": "bf6a469f-4c2a-4402-9438-49a491ad2238",
   "timestamp": "2026-07-16 13:26:00.467611+00:00",
   "data": {
-    "VOLTAGE_A": 120.4, "VOLTAGE_B": 121.2,
-    "CURRENT_A": 1.93, "CURRENT_B": 2.81,
-    "POWER_ACTIVE_INST_TOTAL": -442.2,
-    "POWER_ACTIVE_INST_A": -97.3, "POWER_ACTIVE_INST_B": -344.9,
-    "POWER_REACTIVE_INST_TOTAL": 193.0,
-    "FACTOR_POTENCIA_TOTAL": 0.75,
-    "POWER_ACTIVE_TOTAL_POS": 3083.27,
-    "POWER_ACTIVE_TOTAL_NEG": 1846.6
+    "PhV_phsA": 120.4, "PhV_phsB": 121.2,
+    "A_phsA": 1.93, "A_phsB": 2.81,
+    "TotW": -442.2,
+    "W_phsA": -97.3, "W_phsB": -344.9,
+    "TotVAr": 193.0,
+    "TotPF": 0.75,
+    "TotWh_import": 3083.27,
+    "TotWh_export": 1846.6
   },
   "success": true,
   "device_type": "CT_Meter",
@@ -44,7 +44,7 @@ def test_real_payload_parses() -> None:
     reading = DeviceReading.model_validate_json(REAL_PAYLOAD)
     assert reading.device_id == 11
     assert reading.device_type == "CT_Meter"
-    assert reading.data["POWER_ACTIVE_TOTAL_POS"] == 3083.27
+    assert reading.data["TotWh_import"] == 3083.27
     assert reading.timestamp.tzinfo is not None
 
 

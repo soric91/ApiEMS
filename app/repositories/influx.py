@@ -6,6 +6,7 @@ fragmentos interpolados en el template provienen de enums internos
 (`Aggregation`) o de flags booleanos — nunca de strings del usuario.
 """
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
@@ -26,8 +27,12 @@ MEASUREMENT = "Modbus_Data"
 class InfluxDataSource(Protocol):
     """Contrato de lectura consumido por los servicios (analytics/kpis/reports).
 
-    Permite que los servicios acepten tanto `InfluxRepository` (producción,
-    vía DI) como dobles de prueba, sin acoplarse a la clase concreta.
+    Permite que los servicios acepten tanto `InfluxRepository` (crudo, para
+    tareas internas), `ScopedInfluxRepository` (lo que ve un endpoint, ya
+    acotado a un cliente) como dobles de prueba, sin acoplarse a ninguno.
+
+    A propósito NO menciona `devices`: el recorte por flota es asunto del
+    envoltorio, y un servicio que pudiera pasarlo podría también omitirlo.
     """
 
     async def energy_total(
@@ -75,7 +80,28 @@ from(bucket: _bucket)
 # flota — confirmado en vivo contra InfluxDB). El parámetro público de la API
 # se sigue llamando `device_id`, pero internamente filtra por el tag
 # `identify_device`: es el único que no colisiona entre gateways.
-_DEVICE_FILTER = "  |> filter(fn: (r) => r.identify_device == _device_id)\n"
+_ONE_DEVICE_FILTER = "  |> filter(fn: (r) => r.identify_device == _device_id)\n"
+# Recorte por cliente. Sin esto, una consulta sin `device_id` agregaría los
+# equipos de TODAS las empresas — que es exactamente la fuga que el filtro por
+# flota existe para impedir.
+_MANY_DEVICES_FILTER = (
+    "  |> filter(fn: (r) => contains(value: r.identify_device, set: _devices))\n"
+)
+
+
+def _device_filter(device_id: str | None, devices: Sequence[str] | None) -> str:
+    """El fragmento Flux que acota la consulta a lo que el que llama puede ver.
+
+    Un `device_id` concreto gana: ya viene validado contra la flota, así que
+    volver a aplicar el conjunto sería redundante. Sin él, se acota al
+    conjunto. Sin ninguno de los dos no hay recorte, que solo es correcto para
+    un llamador sin dueño (una tarea interna), nunca para una petición HTTP.
+    """
+    if device_id is not None:
+        return _ONE_DEVICE_FILTER
+    if devices is not None:
+        return _MANY_DEVICES_FILTER
+    return ""
 
 
 class InfluxRepository:
@@ -95,6 +121,7 @@ class InfluxRepository:
         every: timedelta,
         aggregation: Aggregation = Aggregation.MEAN,
         device_id: str | None = None,
+        devices: Sequence[str] | None = None,
     ) -> list[TimeSeriesPoint]:
         """Serie agregada (mean/max/min/last) de una variable instantánea."""
         if is_cumulative(variable):
@@ -102,7 +129,7 @@ class InfluxRepository:
 
         flux = (
             _BASE_FILTER
-            + (_DEVICE_FILTER if device_id is not None else "")
+            + _device_filter(device_id, devices)
             + "  |> aggregateWindow(every: _every, offset: _offset, "
             + f"fn: {aggregation.value}, createEmpty: false)\n"
         )
@@ -112,6 +139,7 @@ class InfluxRepository:
             stop=stop,
             every=every,
             device_id=device_id,
+            devices=devices,
         )
         params["_offset"] = flux_window_offset(self._tz_name, start)
         tables = await self._query(flux, params)
@@ -121,6 +149,7 @@ class InfluxRepository:
         self,
         variable: Variable,
         device_id: str | None = None,
+        devices: Sequence[str] | None = None,
         lookback: timedelta = timedelta(hours=1),
     ) -> TimeSeriesPoint | None:
         """Último valor registrado de cualquier variable (instantánea o contador)."""
@@ -129,10 +158,10 @@ class InfluxRepository:
             "  |> range(start: _start)\n"
             "  |> filter(fn: (r) => r._measurement == _measurement)\n"
             "  |> filter(fn: (r) => r._field == _field)\n"
-            + (_DEVICE_FILTER if device_id is not None else "")
+            + _device_filter(device_id, devices)
             + "  |> last()\n"
         )
-        params = self._params(field=variable, start=-lookback, device_id=device_id)
+        params = self._params(field=variable, start=-lookback, device_id=device_id, devices=devices)
         tables = await self._query(flux, params)
         records = self._records(tables)
         if not records:
@@ -147,6 +176,7 @@ class InfluxRepository:
         stop: datetime,
         aggregation: Aggregation,
         device_id: str | None = None,
+        devices: Sequence[str] | None = None,
     ) -> float | None:
         """Reduce todo el rango a un solo valor (mean/max/min/last), sin ventana.
 
@@ -157,10 +187,12 @@ class InfluxRepository:
 
         flux = (
             _BASE_FILTER
-            + (_DEVICE_FILTER if device_id is not None else "")
+            + _device_filter(device_id, devices)
             + f"  |> {aggregation.value}()\n"
         )
-        params = self._params(field=variable, start=start, stop=stop, device_id=device_id)
+        params = self._params(
+            field=variable, start=start, stop=stop, device_id=device_id, devices=devices
+        )
         tables = await self._query(flux, params)
         values = self._values(tables)
         return values[0] if values else None
@@ -175,6 +207,7 @@ class InfluxRepository:
         stop: datetime,
         every: timedelta,
         device_id: str | None = None,
+        devices: Sequence[str] | None = None,
     ) -> list[EnergyPoint]:
         """Energía (kWh) por ventana: difference() sobre el contador acumulativo.
 
@@ -186,7 +219,7 @@ class InfluxRepository:
 
         flux = (
             _BASE_FILTER
-            + (_DEVICE_FILTER if device_id is not None else "")
+            + _device_filter(device_id, devices)
             + "  |> aggregateWindow(every: _every, offset: _offset, fn: last, createEmpty: false)\n"
             + "  |> difference(nonNegative: true)\n"
         )
@@ -196,6 +229,7 @@ class InfluxRepository:
             stop=stop,
             every=every,
             device_id=device_id,
+            devices=devices,
         )
         params["_offset"] = flux_window_offset(self._tz_name, start)
         tables = await self._query(flux, params)
@@ -207,13 +241,16 @@ class InfluxRepository:
         start: datetime,
         stop: datetime,
         device_id: str | None = None,
+        devices: Sequence[str] | None = None,
     ) -> float:
         """Energía total (kWh) en el rango: spread() = last - first del contador."""
         if not is_cumulative(counter):
             raise ValueError(f"'{counter}' no es un contador acumulativo")
 
-        flux = _BASE_FILTER + (_DEVICE_FILTER if device_id is not None else "") + "  |> spread()\n"
-        params = self._params(field=counter, start=start, stop=stop, device_id=device_id)
+        flux = _BASE_FILTER + _device_filter(device_id, devices) + "  |> spread()\n"
+        params = self._params(
+            field=counter, start=start, stop=stop, device_id=device_id, devices=devices
+        )
         tables = await self._query(flux, params)
         return round(sum(self._values(tables)), 2)
 
@@ -226,6 +263,50 @@ import "influxdata/influxdb/schema"
 schema.tagValues(bucket: _bucket, tag: "identify_device", start: _start)
 """
         params: dict[str, Any] = {"_bucket": self._bucket, "_start": -lookback}
+        tables = await self._query(flux, params)
+        return sorted(
+            str(record.get_value())
+            for table in tables
+            for record in table.records
+            if record.get_value() is not None
+        )
+
+    async def field_keys(
+        self,
+        devices: Sequence[str],
+        lookback: timedelta = timedelta(days=30),
+    ) -> list[str]:
+        """Qué campos reportaron algo estos equipos, en la ventana dada.
+
+        Es la mitad de la respuesta a "qué se puede graficar": la otra mitad
+        —qué significa cada nombre— la tiene el CRM. Sin esto, un panel
+        dibujaría una gráfica de fase C para un medidor monofásico y la
+        mostraría vacía para siempre.
+
+        `schema.fieldKeys` con predicado deja que Influx resuelva contra sus
+        metadatos en vez de leer las series enteras; escanear 30 días de
+        puntos solo para saber qué nombres existen sería caro y se paga en
+        cada carga del panel.
+        """
+        if not devices:
+            return []
+
+        flux = """
+import "influxdata/influxdb/schema"
+schema.fieldKeys(
+    bucket: _bucket,
+    predicate: (r) =>
+        r._measurement == _measurement and
+        contains(value: r.identify_device, set: _devices),
+    start: _start,
+)
+"""
+        params: dict[str, Any] = {
+            "_bucket": self._bucket,
+            "_measurement": MEASUREMENT,
+            "_devices": list(devices),
+            "_start": -lookback,
+        }
         tables = await self._query(flux, params)
         return sorted(
             str(record.get_value())
@@ -249,10 +330,12 @@ schema.tagValues(bucket: _bucket, tag: "identify_device", start: _start)
         stop: datetime | None = None,
         every: timedelta | None = None,
         device_id: str | None = None,
+        devices: Sequence[str] | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "_bucket": self._bucket,
             "_measurement": MEASUREMENT,
+            # El nombre de la variable ES el campo: no hay traducción de por medio.
             "_field": field.value,
             "_start": start,
         }
@@ -262,6 +345,10 @@ schema.tagValues(bucket: _bucket, tag: "identify_device", start: _start)
             params["_every"] = every
         if device_id is not None:
             params["_device_id"] = device_id
+        elif devices is not None:
+            # Lista, no set: el cliente de Influx serializa a JSON y `set` no
+            # es serializable. `contains` acepta el array igual.
+            params["_devices"] = list(devices)
         return params
 
     @staticmethod

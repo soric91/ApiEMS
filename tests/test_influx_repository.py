@@ -57,7 +57,9 @@ async def test_instant_series_parameterized(repo: InfluxRepository, fake_api: Fa
     assert fake_api.params == {
         "_bucket": "modbus_data_v2",
         "_measurement": "Modbus_Data",
-        "_field": "VOLTAGE_A",
+        # El nombre real del campo, no el público: la consulta se traduce en
+        # INFLUX_FIELD porque el medidor guarda `Voltaje_A`.
+        "_field": "PhV_phsA",
         "_start": START,
         "_stop": STOP,
         "_every": HOUR,
@@ -66,7 +68,7 @@ async def test_instant_series_parameterized(repo: InfluxRepository, fake_api: Fa
     }
     # Valores nunca interpolados en el Flux; solo referencias a params
     assert "11" not in fake_api.flux
-    assert "VOLTAGE_A" not in fake_api.flux
+    assert "PhV_phsA" not in fake_api.flux
     assert "fn: max" in fake_api.flux
     assert "r.identify_device == _device_id" in fake_api.flux
 

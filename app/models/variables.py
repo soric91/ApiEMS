@@ -9,21 +9,44 @@ from enum import StrEnum
 
 
 class Variable(StrEnum):
-    CURRENT_A = "CURRENT_A"
-    CURRENT_B = "CURRENT_B"
-    CURRENT_C = "CURRENT_C"
-    VOLTAGE_A = "VOLTAGE_A"
-    VOLTAGE_B = "VOLTAGE_B"
-    VOLTAGE_C = "VOLTAGE_C"
-    POWER_ACTIVE_INST_A = "POWER_ACTIVE_INST_A"
-    POWER_ACTIVE_INST_B = "POWER_ACTIVE_INST_B"
-    POWER_ACTIVE_INST_C = "POWER_ACTIVE_INST_C"
-    POWER_ACTIVE_INST_TOTAL = "POWER_ACTIVE_INST_TOTAL"
-    POWER_REACTIVE_INST_TOTAL = "POWER_REACTIVE_INST_TOTAL"
-    FACTOR_POTENCIA_TOTAL = "FACTOR_POTENCIA_TOTAL"
-    # Contadores acumulativos (kWh) — medidor bidireccional en la acometida
-    POWER_ACTIVE_TOTAL_POS = "POWER_ACTIVE_TOTAL_POS"  # energía importada de la red
-    POWER_ACTIVE_TOTAL_NEG = "POWER_ACTIVE_TOTAL_NEG"  # energía exportada a la red
+    """Las mediciones que ApiEMS sabe consultar.
+
+    El valor es el nombre IEC 61850 con el que el gateway publica y con el que
+    queda guardada en InfluxDB. El identificador de Python se mantuvo en
+    inglés porque lo usan catorce módulos; cambiarlo habría sido un renombrado
+    masivo sin ninguna ganancia.
+
+    Estos nombres tienen que coincidir con el catálogo de CRMBackend
+    (app/domain/measurements.py), que es donde se cargan las variables. No hay
+    traducción entre medio: el nombre que se elige en el CRM es el que el
+    gateway publica y el que se consulta acá.
+    """
+
+    # --- Tensión ---
+    VOLTAGE_A = "PhV_phsA"
+    VOLTAGE_B = "PhV_phsB"
+    VOLTAGE_C = "PhV_phsC"
+    # --- Corriente ---
+    CURRENT_A = "A_phsA"
+    CURRENT_B = "A_phsB"
+    CURRENT_C = "A_phsC"
+    # --- Potencia activa ---
+    POWER_ACTIVE_INST_A = "W_phsA"
+    POWER_ACTIVE_INST_B = "W_phsB"
+    POWER_ACTIVE_INST_C = "W_phsC"
+    POWER_ACTIVE_INST_TOTAL = "TotW"
+    # --- Potencia reactiva y aparente ---
+    POWER_REACTIVE_INST_TOTAL = "TotVAr"
+    POWER_APPARENT_INST_TOTAL = "TotVA"
+    # --- Factor de potencia ---
+    FACTOR_POTENCIA_TOTAL = "TotPF"
+    # --- Frecuencia ---
+    FREQUENCY = "Hz"
+    # --- Contadores acumulativos (kWh). Medidor bidireccional en la acometida.
+    # Monótonos crecientes: jamás admiten mean/max/min, solo difference() para
+    # la energía de un rango y last() para el valor puntual.
+    POWER_ACTIVE_TOTAL_POS = "TotWh_import"
+    POWER_ACTIVE_TOTAL_NEG = "TotWh_export"
 
 
 class Aggregation(StrEnum):

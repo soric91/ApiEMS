@@ -22,3 +22,7 @@ Imagen pegada*.png
 graphify-out/
 .coverage
 htmlcov/
+
+# Permisos de Claude Code en esta máquina. Son de quien usa la terminal, no
+# del proyecto.
+.claude/settings.local.json

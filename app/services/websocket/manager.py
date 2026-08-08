@@ -19,21 +19,53 @@ logger = get_logger("apiems.ws")
 
 
 class ConnectionManager:
+    """Conexiones abiertas, cada una con su variable y su flota.
+
+    La flota se guarda por conexión, no se consulta al emitir: una lectura
+    llega cada pocos segundos y resolverla contra el CRM en cada envío sería
+    una petición HTTP por mensaje por cliente.
+    """
+
     def __init__(self) -> None:
         self._subscriptions: dict[WebSocket, Variable | None] = {}
+        # Qué equipos puede ver cada conexión. Sin entrada = no ve ninguno,
+        # que es el valor correcto para una conexión a medio establecer.
+        self._visible: dict[WebSocket, frozenset[str]] = {}
 
     @property
     def connection_count(self) -> int:
         return len(self._subscriptions)
 
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
+    async def connect(
+        self,
+        websocket: WebSocket,
+        devices: frozenset[str],
+        *,
+        subprotocol: str | None = None,
+    ) -> None:
+        # El subprotocolo se devuelve tal como lo ofreció el cliente. Omitirlo
+        # cuando ofreció uno hace que el navegador cierre la conexión.
+        await websocket.accept(subprotocol=subprotocol)
         self._subscriptions[websocket] = None
-        logger.info("ws_connected", connections=self.connection_count)
+        self._visible[websocket] = devices
+        logger.info(
+            "ws_connected", connections=self.connection_count, devices=len(devices)
+        )
 
     def disconnect(self, websocket: WebSocket) -> None:
         self._subscriptions.pop(websocket, None)
+        self._visible.pop(websocket, None)
         logger.info("ws_disconnected", connections=self.connection_count)
+
+    def may_see(self, websocket: WebSocket, device_id: str | None) -> bool:
+        """Si esta conexión tiene permitido ver ese equipo.
+
+        Un `device_id` vacío no se difunde a nadie: sin saber de quién es, no
+        hay forma de decidir quién debería verlo.
+        """
+        if device_id is None:
+            return False
+        return device_id in self._visible.get(websocket, frozenset())
 
     def subscribe(self, websocket: WebSocket, variable: Variable) -> None:
         self._subscriptions[websocket] = variable
@@ -50,6 +82,8 @@ class ConnectionManager:
         for websocket, variable in list(self._subscriptions.items()):
             if variable is None or variable.value not in reading.data:
                 continue
+            if not self.may_see(websocket, reading.identify_device):
+                continue
             payload = _data_message(reading, variable)
             try:
                 await self.send(websocket, payload)
@@ -59,12 +93,17 @@ class ConnectionManager:
             self.disconnect(websocket)
 
     async def broadcast_alert(self, alert: Alert) -> None:
-        """A diferencia de broadcast(), llega a TODOS los clientes conectados
-        sin importar qué variable tengan suscrita — una alerta importa más
-        allá de qué gráfica esté abierta."""
+        """Llega sin importar qué variable tenga suscrita cada cliente — una
+        alerta importa más allá de qué gráfica esté abierta.
+
+        Lo que sí se respeta es de quién es el equipo: una alerta es un dato
+        de consumo como cualquier otro.
+        """
         payload = {"type": "alert", **alert.model_dump(mode="json")}
         dead: list[WebSocket] = []
         for websocket in list(self._subscriptions):
+            if not self.may_see(websocket, alert.device_id):
+                continue
             try:
                 await self.send(websocket, payload)
             except Exception:

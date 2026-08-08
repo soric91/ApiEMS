@@ -8,15 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
+from app.core.crm_identity import CrmIdentityVerifier
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestTimingMiddleware
-from app.core.security import TokenBlacklist
 from app.repositories.influx import InfluxRepository
 from app.schemas.mqtt import DeviceReading
 from app.services.alerts.detector import check_hourly
 from app.services.alerts.state import AlertsState
 from app.services.crm.client import CrmClient
+from app.services.crm.fleet import FleetDirectory
 from app.services.influx.client import InfluxService
 from app.services.mqtt.client import MQTTService
 from app.services.realtime.state import RealtimeState
@@ -90,7 +91,15 @@ def _make_mqtt_handler(
         state.update(reading)
         await ws_manager.broadcast(reading)
 
-        alert = await check_hourly(influx_repo, reading, settings)
+        # Las alertas consultan InfluxDB, así que dependen de un servicio que
+        # el relay no necesita para nada. Si esa consulta falla, el panel tiene
+        # que seguir viendo su lectura en vivo: lo que se pierde es la alerta,
+        # no el dato. Va después del broadcast y con su propio `except` por eso.
+        try:
+            alert = await check_hourly(influx_repo, reading, settings)
+        except Exception as exc:
+            get_logger("apiems.alerts").warning("alerta_no_evaluada", error=str(exc))
+            return
         if alert is not None and alerts_state.add_if_due(alert):
             await ws_manager.broadcast_alert(alert)
 
@@ -103,14 +112,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     logger = get_logger("apiems")
     logger.info("startup", app=settings.APP_NAME, environment=settings.ENVIRONMENT)
 
-    app.state.token_blacklist = TokenBlacklist()
-
     # Construcción, no conexión: CrmClient no habla con la red hasta el
     # primer get_tariffs()/get_fleet() — el arranque no se bloquea esperando
     # a CRMBackend, y si está caído, RemoteTariffStore degrada en vez de
     # tumbar el proceso (ver app/services/tariff/store.py).
     app.state.crm_client = CrmClient(settings)
     app.state.remote_tariff_store = RemoteTariffStore(app.state.crm_client)
+    # La identidad la emite el CRM; acá solo se verifica con su clave pública.
+    # PyJWKClient pide el JWKS de forma perezosa, así que esto tampoco toca la
+    # red al arrancar.
+    app.state.identity_verifier = CrmIdentityVerifier(settings)
+    app.state.fleet_directory = FleetDirectory(settings, app.state.crm_client)
 
     influx = InfluxService(settings)
     await influx.connect()
@@ -149,9 +161,9 @@ def create_app() -> FastAPI:
         title=settings.APP_NAME,
         version="0.1.0",
         description=(
-            "Backend EMS residencial. Mide el balance neto en la frontera con la red: "
-            "energía importada (`POWER_ACTIVE_TOTAL_POS`) y exportada "
-            "(`POWER_ACTIVE_TOTAL_NEG`). No mide generación solar ni autoconsumo."
+            "Backend EMS. Mide el balance neto en la frontera con la red: "
+            "energía importada (`TotWh_import`) y exportada "
+            "(`TotWh_export`). No mide generación solar ni autoconsumo."
         ),
         openapi_tags=OPENAPI_TAGS,
         lifespan=lifespan,

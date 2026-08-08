@@ -3,10 +3,8 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-_MIN_JWT_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -44,15 +42,20 @@ class Settings(BaseSettings):
     # provocan desconexiones mutuas en el broker.
     MQTT_CLIENT_ID: str = "apiems-backend"
 
-    # --- JWT ---
-    JWT_SECRET: str = ""
-    JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE: int = Field(default=30, description="Access token TTL en minutos")
-    JWT_REFRESH_EXPIRE: int = Field(default=10080, description="Refresh token TTL en minutos")
-
-    # --- API auth (usuario único) ---
-    API_USERNAME: str = ""
-    API_PASSWORD: str = ""
+    # --- Identidad ---
+    # ApiEMS ya no emite tokens: los emite CRMBackend, que es quien sabe qué
+    # clientes existen y qué puede ver cada uno. Acá solo se verifican, con la
+    # clave pública que el CRM publica — sin secreto compartido, así que este
+    # servicio nunca puede falsificar uno.
+    #
+    # Solo se acepta la audiencia `monitor`, la de la web de clientes. Un token
+    # de operador del CRM no abre el panel de consumo de nadie.
+    CRM_JWT_AUDIENCE: str = "monitor"
+    # Las claves cambian solo al rotarlas; releerlas por request es puro gasto.
+    CRM_JWKS_CACHE_SECONDS: int = 3600
+    # El árbol de la flota cambia cuando alguien edita equipos en el CRM.
+    # Corto porque un equipo nuevo debe aparecer sin reiniciar nada.
+    CRM_FLEET_CACHE_SECONDS: int = 300
 
     # --- CORS ---
     CORS_ORIGINS: str = "http://localhost:4321"
@@ -62,10 +65,6 @@ class Settings(BaseSettings):
     # qué rango de datos corresponde a "hoy", "esta semana", etc.
     TIMEZONE: str = "America/Bogota"
 
-    # --- Tarifa eléctrica (costos en COP) ---
-    # Archivo editable en caliente (no .env): la tarifa cambia mes a mes y no
-    # tiene sentido reiniciar el contenedor solo para actualizar un número.
-    TARIFF_CONFIG_PATH: str = "data/tariffs.json"
 
     # --- CRMBackend (Fase 5, prompt_arquitectura_v2.md) ---
     # Credencial máquina-a-máquina real: POST /api/v1/service/token con
@@ -80,18 +79,22 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _require_strong_secrets_in_production(self) -> "Settings":
         if self.ENVIRONMENT == "production":
-            if len(self.JWT_SECRET) < _MIN_JWT_SECRET_LENGTH:
-                raise ValueError("JWT_SECRET debe tener al menos 32 caracteres en producción")
-            if not self.API_PASSWORD or self.API_PASSWORD == "changeme":
-                raise ValueError("API_PASSWORD debe definirse (y no ser 'changeme') en producción")
-            # Solo si se configuró CRM_BASE_URL: un secreto vacío o de ejemplo
-            # se detecta al arrancar, no en la primera petición de costos.
-            if self.CRM_BASE_URL and not self.CRM_CLIENT_SECRET.startswith("svcsec_"):
+            # El CRM dejó de ser opcional: sin él no hay identidad ni tarifas,
+            # así que un arranque sin configurar es un despliegue roto, no un
+            # modo degradado.
+            if not self.CRM_BASE_URL:
+                raise ValueError("CRM_BASE_URL es obligatorio: el CRM emite la identidad")
+            if not self.CRM_CLIENT_SECRET.startswith("svcsec_"):
                 raise ValueError(
                     "CRM_CLIENT_SECRET debe ser una credencial de servicio real "
-                    "('svcsec_...') cuando CRM_BASE_URL está configurado en producción"
+                    "('svcsec_...'). Se emite en el CRM: Servicios > Nueva credencial"
                 )
         return self
+
+    @property
+    def crm_jwks_url(self) -> str:
+        """Dónde publica el CRM la clave pública con la que firma."""
+        return f"{self.CRM_BASE_URL.rstrip('/')}/.well-known/jwks.json"
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -7,9 +7,9 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, Request
 
 from app.core.config import Settings, get_settings
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
-from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.alerts import AlertsResponse
 from app.schemas.common import ApiResponse
 from app.services.alerts.detector import check_daily_total
@@ -17,7 +17,7 @@ from app.services.alerts.state import AlertsState
 
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
-RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
+RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -33,7 +33,7 @@ async def alerts(
     repo: RepoDep,
     settings: SettingsDep,
     state: StateDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     device_id: str | None = None,
     limit: int = 50,
 ) -> ApiResponse[AlertsResponse]:

@@ -13,11 +13,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.config import Settings, get_settings
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.dependencies.tariff import get_tariff_config
 from app.models.variables import Variable
-from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.analytics import (
     AnalyticsOverview,
     AnalyticsSummary,
@@ -47,7 +47,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 # alcanza para eso, por eso /summary tiene su propio default más largo.
 SUMMARY_LOOKBACK_DAYS = 30
 
-RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
+RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 TariffDep = Annotated[TariffConfig, Depends(get_tariff_config)]
 FromQuery = Annotated[
@@ -76,7 +76,7 @@ def _resolve_range(
 async def analytics_overview(
     repo: RepoDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery = None,
     to: ToQuery = None,
     device_id: str | None = None,
@@ -113,7 +113,7 @@ async def analytics_overview(
 async def analytics_daily_profile(
     repo: RepoDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery = None,
     to: ToQuery = None,
     device_id: str | None = None,
@@ -132,7 +132,7 @@ async def analytics_daily_profile(
 async def analytics_monthly_profile(
     repo: RepoDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery = None,
     to: ToQuery = None,
     device_id: str | None = None,
@@ -155,7 +155,7 @@ async def analytics_monthly_profile(
 async def analytics_max_demand(
     repo: RepoDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery = None,
     to: ToQuery = None,
     device_id: str | None = None,
@@ -173,7 +173,7 @@ async def analytics_max_demand(
 async def analytics_load_factor(
     repo: RepoDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery = None,
     to: ToQuery = None,
     device_id: str | None = None,
@@ -190,7 +190,7 @@ async def analytics_load_factor(
 async def analytics_base_load(
     repo: RepoDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery = None,
     to: ToQuery = None,
     percentile: Annotated[float, Query(gt=0, lt=1)] = DEFAULT_PERCENTILE,
@@ -206,7 +206,7 @@ async def analytics_base_load(
 @router.get("/compare", summary="Comparar dos periodos", response_model=ApiResponse[CompareResult])
 async def analytics_compare(
     repo: RepoDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_a: Annotated[datetime, Query(description="Inicio del periodo A (UTC)")],
     to_a: Annotated[datetime, Query(description="Fin del periodo A (UTC)")],
     from_b: Annotated[datetime, Query(description="Inicio del periodo B (UTC)")],
@@ -231,7 +231,7 @@ async def analytics_summary_endpoint(
     repo: RepoDep,
     settings: SettingsDep,
     tariff: TariffDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: FromQuery = None,
     to: ToQuery = None,
     device_id: str | None = None,

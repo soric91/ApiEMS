@@ -12,14 +12,6 @@ ENDPOINTS = [
 ]
 
 
-def _login(client: TestClient) -> dict[str, str]:
-    response = client.post(
-        "/api/v1/auth/login", json={"username": "testuser", "password": "testpass"}
-    )
-    token = response.json()["data"]["access_token"]
-    return {"Authorization": f"Bearer {token}"}
-
-
 def test_all_analytics_endpoints_require_auth(client: TestClient) -> None:
     for endpoint in ENDPOINTS:
         assert client.get(endpoint).status_code == 401
@@ -38,20 +30,20 @@ def test_all_analytics_endpoints_require_auth(client: TestClient) -> None:
     assert client.get("/api/v1/analytics/summary").status_code == 401
 
 
-def test_all_analytics_endpoints_default_to_today(client: TestClient) -> None:
-    headers = _login(client)
+def test_all_analytics_endpoints_default_to_today(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     for endpoint in ENDPOINTS:
-        response = client.get(endpoint, headers=headers)
+        response = client.get(endpoint, headers=auth_headers)
         assert response.status_code == 200, endpoint
         assert response.json()["success"] is True
 
 
 def test_analytics_overview_shape(
-    client: TestClient, fake_influx_repo: FakeInfluxRepository
+    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
 ) -> None:
-    headers = _login(client)
     fake_influx_repo.energy_total_value = 2.5
-    response = client.get("/api/v1/analytics", headers=headers)
+    response = client.get("/api/v1/analytics", headers=auth_headers)
     body = response.json()["data"]
     assert body["consumption_kwh"] == 2.5
     assert "max_demand" in body
@@ -59,36 +51,36 @@ def test_analytics_overview_shape(
     assert "base_load" in body
 
 
-def test_analytics_invalid_range_rejected(client: TestClient) -> None:
-    headers = _login(client)
+def test_analytics_invalid_range_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get(
         "/api/v1/analytics/max-demand",
         params={"from": "2026-07-02T00:00:00Z", "to": "2026-07-01T00:00:00Z"},
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 400
 
 
-def test_monthly_profile_invalid_range_rejected(client: TestClient) -> None:
-    headers = _login(client)
+def test_monthly_profile_invalid_range_rejected(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     response = client.get(
         "/api/v1/analytics/monthly-profile",
         params={"from": "2026-07-02T00:00:00Z", "to": "2026-07-01T00:00:00Z"},
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 400
 
 
-def test_base_load_percentile_bounds(client: TestClient) -> None:
-    headers = _login(client)
-    ok = client.get("/api/v1/analytics/base-load", params={"percentile": 0.2}, headers=headers)
+def test_base_load_percentile_bounds(client: TestClient, auth_headers: dict[str, str]) -> None:
+    ok = client.get("/api/v1/analytics/base-load", params={"percentile": 0.2}, headers=auth_headers)
     assert ok.status_code == 200
-    bad = client.get("/api/v1/analytics/base-load", params={"percentile": 1.5}, headers=headers)
+    bad = client.get(
+        "/api/v1/analytics/base-load", params={"percentile": 1.5}, headers=auth_headers
+    )
     assert bad.status_code == 422
 
 
-def test_compare_requires_all_bounds(client: TestClient) -> None:
-    headers = _login(client)
+def test_compare_requires_all_bounds(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get(
         "/api/v1/analytics/compare",
         params={
@@ -97,7 +89,7 @@ def test_compare_requires_all_bounds(client: TestClient) -> None:
             "from_b": "2026-01-08T00:00:00Z",
             "to_b": "2026-01-09T00:00:00Z",
         },
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 200
     body = response.json()["data"]
@@ -105,11 +97,10 @@ def test_compare_requires_all_bounds(client: TestClient) -> None:
 
 
 def test_analytics_summary_shape(
-    client: TestClient, fake_influx_repo: FakeInfluxRepository
+    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
 ) -> None:
-    headers = _login(client)
     fake_influx_repo.energy_total_value = 3.0
-    response = client.get("/api/v1/analytics/summary", headers=headers)
+    response = client.get("/api/v1/analytics/summary", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()["data"]
     assert body["consumption_daily_kwh"] == 3.0
@@ -119,18 +110,18 @@ def test_analytics_summary_shape(
     assert body["efficiency"] is None  # sin tarifa configurada
 
 
-def test_analytics_summary_invalid_range_rejected(client: TestClient) -> None:
-    headers = _login(client)
+def test_analytics_summary_invalid_range_rejected(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
     response = client.get(
         "/api/v1/analytics/summary",
         params={"from": "2026-07-02T00:00:00Z", "to": "2026-07-01T00:00:00Z"},
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 400
 
 
-def test_compare_invalid_range_rejected(client: TestClient) -> None:
-    headers = _login(client)
+def test_compare_invalid_range_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
     response = client.get(
         "/api/v1/analytics/compare",
         params={
@@ -139,6 +130,6 @@ def test_compare_invalid_range_rejected(client: TestClient) -> None:
             "from_b": "2026-01-08T00:00:00Z",
             "to_b": "2026-01-09T00:00:00Z",
         },
-        headers=headers,
+        headers=auth_headers,
     )
     assert response.status_code == 400

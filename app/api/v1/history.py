@@ -12,17 +12,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.models.variables import Aggregation, Variable, is_cumulative
-from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.history import HistoryResponse, RangeSummary
 from app.schemas.influx import TimeSeriesPoint
 
 router = APIRouter(prefix="/history", tags=["History"])
 
-RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
+RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 FromQuery = Annotated[datetime, Query(alias="from", description="Inicio del rango (UTC, ISO 8601)")]
 ToQuery = Annotated[datetime, Query(description="Fin del rango (UTC, ISO 8601)")]
 
@@ -47,7 +47,7 @@ def _check_point_budget(from_: datetime, to: datetime, interval_seconds: int) ->
 
 
 async def _series(
-    repo: InfluxRepository,
+    repo: ScopedInfluxRepository,
     variable: Variable,
     from_: datetime,
     to: datetime,
@@ -82,7 +82,7 @@ async def _series(
 )
 async def history(
     repo: RepoDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     variable: Variable,
     from_: FromQuery,
     to: ToQuery,
@@ -115,7 +115,7 @@ async def history(
 )
 async def history_downsample(
     repo: RepoDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     variable: Variable,
     from_: FromQuery,
     to: ToQuery,
@@ -143,7 +143,7 @@ async def history_downsample(
 )
 async def history_range(
     repo: RepoDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     variable: Variable,
     from_: FromQuery,
     to: ToQuery,

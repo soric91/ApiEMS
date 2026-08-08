@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.realtime import get_realtime_state
 from app.schemas.common import ApiResponse
 from app.schemas.realtime import DeviceSnapshot
@@ -20,9 +20,16 @@ StateDep = Annotated[RealtimeState, Depends(get_realtime_state)]
     summary="Último snapshot de todos los dispositivos",
     response_model=ApiResponse[list[DeviceSnapshot]],
 )
-async def latest(state: StateDep, _user: CurrentUser) -> ApiResponse[list[DeviceSnapshot]]:
-    """Último valor conocido (en RAM) de cada dispositivo que ha publicado por MQTT."""
-    return ApiResponse(data=state.latest())
+async def latest(state: StateDep, fleet: CurrentFleet) -> ApiResponse[list[DeviceSnapshot]]:
+    """Último valor conocido (en RAM) de cada equipo de esta empresa.
+
+    El estado en memoria es de toda la flota — la ingesta MQTT no distingue
+    clientes y no debería, porque las alertas corren igual sin nadie mirando.
+    El recorte pasa acá, al leerlo.
+    """
+    return ApiResponse(
+        data=[snap for snap in state.latest() if snap.device_id in fleet.device_ids]
+    )
 
 
 @router.get(
@@ -32,10 +39,12 @@ async def latest(state: StateDep, _user: CurrentUser) -> ApiResponse[list[Device
     responses={404: {"description": "Dispositivo sin datos en memoria"}},
 )
 async def device(
-    device_id: str, state: StateDep, _user: CurrentUser
+    device_id: str, state: StateDep, fleet: CurrentFleet
 ) -> ApiResponse[DeviceSnapshot]:
     """Último valor conocido (en RAM) de un dispositivo específico."""
-    snapshot = state.device(device_id)
+    # Un equipo ajeno se responde igual que uno inexistente: distinguirlos
+    # confirmaría que otra empresa lo tiene.
+    snapshot = state.device(device_id) if device_id in fleet.device_ids else None
     if snapshot is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

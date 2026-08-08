@@ -1,18 +1,84 @@
-"""get_influx_repository() nunca se ejerce vía HTTP: los tests de endpoints
-siempre lo sustituyen por FakeInfluxRepository (ver conftest.client). Se
-prueba aquí directo, con un objeto mínimo que imita el Request real."""
+"""El repositorio que recibe un endpoint viene ya acotado a un cliente.
 
+Nunca se ejerce vía HTTP: los tests de endpoints lo sustituyen por
+FakeInfluxRepository (ver conftest.client). Se prueba acá directo, porque lo
+que importa no es de dónde sale el repositorio crudo sino que lo que se
+entrega sea el envoltorio y no él.
+"""
+
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
-from fastapi import Request
+import pytest
+from fastapi import HTTPException, Request
 
-from app.dependencies.influx import get_influx_repository
+from app.dependencies.influx import get_influx_repository, get_unscoped_repository
+from app.models.variables import Variable
+from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
+from app.services.crm.fleet import ClientFleet
+from tests.fakes import FakeInfluxRepository
+
+MIO = "bf6a469f-4c2a-4402-9438-49a491ad2238"
+AJENO = "00000000-0000-4000-8000-000000000000"
 
 
-def test_get_influx_repository_reads_app_state() -> None:
+def _fleet() -> ClientFleet:
+    return ClientFleet(
+        client_id="cliente-1",
+        device_ids=frozenset({MIO}),
+        device_names={MIO: "Medidor"},
+        variables=(),
+        puede_ver_consumo=True,
+    )
+
+
+def test_the_unscoped_repository_comes_from_app_state() -> None:
     sentinel = object()
     fake_request = cast(
-        Request, SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(influx_repo=sentinel)))
+        Request,
+        SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(influx_repo=sentinel))),
     )
-    assert get_influx_repository(fake_request) is sentinel
+
+    assert get_unscoped_repository(fake_request) is sentinel
+
+
+def test_an_endpoint_never_receives_the_raw_repository() -> None:
+    """Si lo recibiera, una consulta sin `device_id` agregaría toda la flota
+    de todas las empresas. El envoltorio es lo que lo hace imposible."""
+    inner = cast(InfluxRepository, object())
+
+    repo = get_influx_repository(_fleet(), inner)
+
+    assert isinstance(repo, ScopedInfluxRepository)
+
+
+async def test_a_device_of_another_client_is_not_found() -> None:
+    """404 y no 403: confirmar que existe ya sería contar algo ajeno."""
+    inner = FakeInfluxRepository()
+    repo = get_influx_repository(_fleet(), cast(InfluxRepository, inner))
+    start = datetime(2026, 4, 20, tzinfo=UTC)
+
+    with pytest.raises(HTTPException) as raised:
+        await repo.energy_total(
+            Variable.POWER_ACTIVE_TOTAL_POS, start, start + timedelta(days=1), AJENO
+        )
+
+    assert raised.value.status_code == 404
+    # Y no llegó a consultarse nada: el rechazo pasa antes de tocar InfluxDB.
+    assert inner.calls == []
+
+
+async def test_a_device_of_this_client_goes_through() -> None:
+    """El contraste que hace útil al test anterior."""
+    inner = FakeInfluxRepository()
+    repo = get_influx_repository(_fleet(), cast(InfluxRepository, inner))
+    start = datetime(2026, 4, 20, tzinfo=UTC)
+
+    await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, start, start + timedelta(days=1), MIO)
+
+    # El recorte por flota viaja con la consulta aunque se pidió un equipo
+    # concreto: es la diferencia entre "confío en la validación" y "además lo
+    # acoto en la propia consulta".
+    assert inner.calls == [("energy_total", Variable.POWER_ACTIVE_TOTAL_POS.value, MIO, (MIO,))]

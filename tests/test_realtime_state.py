@@ -11,7 +11,7 @@ READING = DeviceReading(
     timestamp=datetime(2026, 7, 16, 13, 26, 0, tzinfo=UTC),
     success=True,
     error=None,
-    data={"VOLTAGE_A": 120.4, "POWER_ACTIVE_INST_TOTAL": -442.2},
+    data={"PhV_phsA": 120.4, "TotW": -442.2},
 )
 
 
@@ -25,7 +25,7 @@ def test_update_then_latest() -> None:
     snapshots = state.latest()
     assert len(snapshots) == 1
     assert snapshots[0].device_id == UUID
-    assert snapshots[0].data["VOLTAGE_A"] == 120.4
+    assert snapshots[0].data["PhV_phsA"] == 120.4
 
 
 def test_device_lookup() -> None:
@@ -38,14 +38,14 @@ def test_device_lookup() -> None:
 def test_update_overwrites_same_device() -> None:
     state = RealtimeState()
     state.update(READING)
-    updated = READING.model_copy(update={"data": {"VOLTAGE_A": 121.0}})
+    updated = READING.model_copy(update={"data": {"PhV_phsA": 121.0}})
     state.update(updated)
     assert len(state.latest()) == 1
-    assert state.device(UUID).data["VOLTAGE_A"] == 121.0  # pyright: ignore[reportOptionalMemberAccess]
+    assert state.device(UUID).data["PhV_phsA"] == 121.0  # pyright: ignore[reportOptionalMemberAccess]
 
 
 def test_values_of_filters_by_variable() -> None:
     state = RealtimeState()
     state.update(READING)
-    assert len(state.values_of("VOLTAGE_A")) == 1
-    assert state.values_of("FACTOR_POTENCIA_TOTAL") == []
+    assert len(state.values_of("PhV_phsA")) == 1
+    assert state.values_of("TotPF") == []

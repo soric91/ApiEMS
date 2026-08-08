@@ -6,9 +6,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.config import Settings, get_settings
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
-from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.kpis import KpiSummary
 from app.services.kpis.summary import compute_kpis
@@ -16,7 +16,7 @@ from app.utils.period import start_of_day
 
 router = APIRouter(prefix="/kpis", tags=["KPIs"])
 
-RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
+RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -29,7 +29,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 async def kpis(
     repo: RepoDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     from_: Annotated[
         datetime | None,
         Query(alias="from", description="Inicio del rango (UTC). Por defecto: hoy."),

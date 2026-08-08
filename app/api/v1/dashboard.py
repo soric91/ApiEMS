@@ -7,11 +7,11 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.config import Settings, get_settings
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.dependencies.realtime import get_realtime_state
 from app.models.variables import Variable
-from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.dashboard import DashboardCard, DashboardData, DashboardStatus
 from app.schemas.realtime import DeviceSnapshot
@@ -23,7 +23,7 @@ from app.utils.period import start_of_day, start_of_month
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
-RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
+RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 StateDep = Annotated[RealtimeState, Depends(get_realtime_state)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
@@ -49,7 +49,7 @@ def _pick_device(state: RealtimeState, device_id: str | None) -> DeviceSnapshot:
 
 
 async def _build_dashboard(
-    repo: InfluxRepository,
+    repo: ScopedInfluxRepository,
     state: RealtimeState,
     settings: Settings,
     device_id: str | None,
@@ -104,7 +104,7 @@ async def dashboard(
     repo: RepoDep,
     state: StateDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     device_id: str | None = None,
 ) -> ApiResponse[DashboardData]:
     """Potencia/voltaje/corriente/factor de potencia actuales (RAM, vía MQTT) +
@@ -123,7 +123,7 @@ async def dashboard_cards(
     repo: RepoDep,
     state: StateDep,
     settings: SettingsDep,
-    _user: CurrentUser,
+    fleet: CurrentFleet,
     device_id: str | None = None,
 ) -> ApiResponse[list[DashboardCard]]:
     """Mismos datos que `/dashboard`, formateados como lista de tarjetas
@@ -164,7 +164,7 @@ async def dashboard_cards(
     response_model=ApiResponse[DashboardStatus],
 )
 async def dashboard_status(
-    request: Request, state: StateDep, _user: CurrentUser
+    request: Request, state: StateDep, fleet: CurrentFleet
 ) -> ApiResponse[DashboardStatus]:
     """Estado de MQTT, InfluxDB y frescura de los dispositivos en memoria.
 

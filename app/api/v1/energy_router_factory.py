@@ -10,15 +10,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.core.config import Settings, get_settings
-from app.dependencies.auth import CurrentUser
+from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.models.variables import Variable
-from app.repositories.influx import InfluxRepository
+from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.energy import EnergySummary, Period
 from app.services.energy.summary import period_summary
 
-RepoDep = Annotated[InfluxRepository, Depends(get_influx_repository)]
+RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -26,7 +26,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
     router = APIRouter(prefix=prefix, tags=[tag])
 
     async def _summary(
-        period: Period, repo: InfluxRepository, settings: Settings, device_id: str | None
+        period: Period, repo: ScopedInfluxRepository, settings: Settings, device_id: str | None
     ) -> ApiResponse[EnergySummary]:
         summary = await period_summary(repo, counter, period, settings.TIMEZONE, device_id)
         return ApiResponse(data=summary)
@@ -42,7 +42,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
         deprecated=True,  # usar /reports/daily — mismo dato, ya cacheado junto a costos/kpis
     )
     async def day(  # pyright: ignore[reportUnusedFunction]
-        repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None
+        repo: RepoDep, settings: SettingsDep, fleet: CurrentFleet, device_id: str | None = None
     ) -> ApiResponse[EnergySummary]:
         return await _summary("day", repo, settings, device_id)
 
@@ -54,7 +54,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
         deprecated=True,  # usar /reports/weekly
     )
     async def week(  # pyright: ignore[reportUnusedFunction]
-        repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None
+        repo: RepoDep, settings: SettingsDep, fleet: CurrentFleet, device_id: str | None = None
     ) -> ApiResponse[EnergySummary]:
         return await _summary("week", repo, settings, device_id)
 
@@ -66,7 +66,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
         deprecated=True,  # usar /reports/monthly
     )
     async def month(  # pyright: ignore[reportUnusedFunction]
-        repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None
+        repo: RepoDep, settings: SettingsDep, fleet: CurrentFleet, device_id: str | None = None
     ) -> ApiResponse[EnergySummary]:
         return await _summary("month", repo, settings, device_id)
 
@@ -81,7 +81,7 @@ def build_energy_router(*, prefix: str, tag: str, counter: Variable, noun: str) 
         deprecated=True,  # usar /reports/yearly
     )
     async def year(  # pyright: ignore[reportUnusedFunction]
-        repo: RepoDep, settings: SettingsDep, _user: CurrentUser, device_id: str | None = None
+        repo: RepoDep, settings: SettingsDep, fleet: CurrentFleet, device_id: str | None = None
     ) -> ApiResponse[EnergySummary]:
         return await _summary("year", repo, settings, device_id)
 

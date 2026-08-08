@@ -11,7 +11,7 @@ def _alert(bucket: int, minute_offset: int = 0, severity: AlertSeverity = "high"
         kind="hourly_power",
         severity=severity,
         device_id="11",
-        variable="POWER_ACTIVE_INST_TOTAL",
+        variable="TotW",
         value=100.0,
         expected_low=10.0,
         expected_high=50.0,

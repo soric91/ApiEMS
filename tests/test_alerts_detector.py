@@ -23,7 +23,7 @@ def _reading(hour: int, value: float, day: int = 20) -> DeviceReading:
         timestamp=datetime(2026, 4, day, hour, tzinfo=UTC),
         success=True,
         error=None,
-        data={"POWER_ACTIVE_INST_TOTAL": value},
+        data={"TotW": value},
     )
 
 
@@ -67,7 +67,7 @@ async def test_check_hourly_missing_variable_no_alert() -> None:
         timestamp=datetime(2026, 4, 20, 10, tzinfo=UTC),
         success=True,
         error=None,
-        data={"VOLTAGE_A": 120.0},  # sin POWER_ACTIVE_INST_TOTAL
+        data={"PhV_phsA": 120.0},  # sin POWER_ACTIVE_INST_TOTAL
     )
     assert await check_hourly(repo, reading, _settings()) is None
 

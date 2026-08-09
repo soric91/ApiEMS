@@ -11,7 +11,7 @@ from app.dependencies.influx import get_influx_repository
 from app.dependencies.tariff import get_tariff_config
 from app.main import create_app
 from app.schemas.tariff import TariffConfig
-from app.services.crm.fleet import ClientFleet, FleetVariable
+from app.services.crm.fleet import ClientFleet, FleetDevice, FleetVariable
 from tests.fakes import FakeInfluxRepository, FakeInfluxService
 
 # El equipo que usan los tests de tiempo real y WebSocket. Es el mismo valor
@@ -71,8 +71,18 @@ def fleet() -> ClientFleet:
     """La flota que ve el cliente de los tests."""
     return ClientFleet(
         client_id=TEST_CLIENT_ID,
-        device_ids=frozenset({TEST_DEVICE_ID}),
-        device_names={TEST_DEVICE_ID: "Medidor de prueba"},
+        devices=(
+            FleetDevice(
+                id=TEST_DEVICE_ID,
+                nombre="Medidor de prueba",
+                modbus_id=1,
+                sede_id="sede-1",
+                sede="Planta Norte",
+                gateway_id="gw-1",
+                gateway="GW-0001",
+                gateway_en_linea=True,
+            ),
+        ),
         # Ordenadas por nombre, igual que `FleetDirectory.for_client`: si el
         # fixture usara otro orden, un cambio de orden en producción pasaría
         # inadvertido acá.
@@ -165,3 +175,31 @@ def client(
         app.state.fleet_directory = FakeFleetDirectory(fleet)
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def fleet_de_dos(app: FastAPI, fleet: ClientFleet) -> None:
+    """Una flota con dos equipos, para probar que no se mezclan.
+
+    Con uno solo, filtrar por equipo y no filtrar dan el mismo resultado: el
+    test pasaría igual con el filtro roto. Hace falta un segundo equipo visible
+    para que la diferencia exista.
+    """
+    segundo = FleetDevice(
+        id="11111111-2222-4333-8444-555555555555",
+        nombre="Segundo medidor",
+        modbus_id=2,
+        sede_id="sede-1",
+        sede="Planta Norte",
+        gateway_id="gw-1",
+        gateway="GW-0001",
+        gateway_en_linea=True,
+    )
+    app.state.fleet_directory = FakeFleetDirectory(
+        ClientFleet(
+            client_id=fleet.client_id,
+            devices=(*fleet.devices, segundo),
+            variables=fleet.variables,
+            puede_ver_consumo=True,
+        )
+    )

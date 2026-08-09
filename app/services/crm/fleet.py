@@ -8,7 +8,7 @@ pertenencia a conjunto, sin ninguna convención implícita en el medio.
 """
 
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
 from app.core.config import Settings
@@ -44,18 +44,53 @@ class FleetVariable:
 
 
 @dataclass(frozen=True)
+class FleetDevice:
+    """Un equipo dado de alta, con dónde está instalado.
+
+    Conserva la sede y el gateway en vez de aplanarlos. El panel los necesita
+    para agrupar un selector que con veinte medidores en una lista plana es
+    inservible, y para explicar por qué un equipo no reporta: si su gateway
+    está caído, el medidor no tiene nada de malo.
+    """
+
+    id: str
+    nombre: str
+    modbus_id: int | None
+    sede_id: str
+    sede: str
+    gateway_id: str
+    gateway: str
+    # `estado` lo deriva el CRM de `ultima_conexion` contra su propio umbral.
+    # No se recalcula acá: sería un segundo criterio que se puede desincronizar
+    # del que muestra el panel del operador.
+    gateway_en_linea: bool
+
+
+@dataclass(frozen=True)
 class ClientFleet:
     """Los equipos de un cliente, y cómo se llaman."""
 
     client_id: str
-    # Los `identify_device` que este cliente tiene permitido ver.
-    device_ids: frozenset[str]
-    # id -> nombre del dispositivo, para no tener que pedir el árbol de nuevo
-    # solo para mostrar una etiqueta.
-    device_names: dict[str, str]
+    # El inventario completo, con su jerarquía. Incluye los equipos de un
+    # gateway caído: existen y su histórico se puede consultar, así que
+    # esconderlos sería perder datos que sí están.
+    devices: tuple[FleetDevice, ...]
     # Las mediciones dadas de alta en esos equipos, sin repetir.
     variables: tuple[FleetVariable, ...]
     puede_ver_consumo: bool
+
+    # Derivados de `devices`, no recibidos. Antes venían por separado y nada
+    # garantizaba que coincidieran: un conjunto de ids que no correspondiera al
+    # inventario dejaría pasar consultas de equipos que el cliente no tiene, o
+    # negaría los suyos. Calculándolos acá esa clase de error no existe.
+    device_ids: frozenset[str] = field(init=False)
+    device_names: dict[str, str] = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "device_ids", frozenset(d.id for d in self.devices))
+        object.__setattr__(
+            self, "device_names", {d.id: d.nombre for d in self.devices}
+        )
 
 
 def _children(node: dict[str, Any], key: str) -> list[dict[str, Any]]:
@@ -71,16 +106,28 @@ def _children(node: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return [item for item in cast(list[object], value) if isinstance(item, dict)]
 
 
-def _walk_devices(
-    payload: dict[str, Any],
-) -> tuple[dict[str, str], dict[str, FleetVariable], bool]:
-    """Aplana el árbol a equipos, variables y el permiso del cliente.
+def _entero(valor: object) -> int | None:
+    return valor if isinstance(valor, int) and not isinstance(valor, bool) else None
 
-    Las variables se juntan por nombre a través de todos los equipos: dos
+
+def walk_devices(
+    payload: dict[str, Any],
+) -> tuple[list[FleetDevice], dict[str, FleetVariable], bool]:
+    """Recorre el árbol y devuelve los equipos, las variables y el permiso.
+
+    Público a propósito: es la traducción entre la forma que devuelve el CRM y
+    la que usa todo lo demás, y un error acá no se ve como un error —se ve como
+    un cliente al que le faltan medidores— así que tiene sus propios tests.
+
+    Los equipos conservan su sede y su gateway. Antes esto aplanaba a un
+    diccionario `id -> nombre`, y con esa forma el panel no tenía cómo agrupar
+    ni cómo saber que un medidor sin datos cuelga de un gateway caído.
+
+    Las variables sí se juntan por nombre a través de todos los equipos: dos
     medidores que miden tensión de fase A son una sola entrada con dos
     equipos, no dos entradas iguales.
     """
-    devices: dict[str, str] = {}
+    devices: list[FleetDevice] = []
     variables: dict[str, FleetVariable] = {}
     puede_ver = False
     for client in _children(payload, "items"):
@@ -92,7 +139,18 @@ def _walk_devices(
                     if not device_id:
                         continue
                     name = equipment.get("nombre_dispositivo")
-                    devices[device_id] = str(name) if name else device_id
+                    devices.append(
+                        FleetDevice(
+                            id=device_id,
+                            nombre=str(name) if name else device_id,
+                            modbus_id=_entero(equipment.get("modbus_id")),
+                            sede_id=str(site.get("id", "")),
+                            sede=str(site.get("nombre") or "Sin sede"),
+                            gateway_id=str(gateway.get("id", "")),
+                            gateway=str(gateway.get("numero_serie") or "Sin gateway"),
+                            gateway_en_linea=gateway.get("estado") == "online",
+                        )
+                    )
                     for variable in _children(equipment, "variables"):
                         _acumular(variables, variable, device_id)
     return devices, variables, puede_ver
@@ -177,11 +235,14 @@ class FleetDirectory:
                 total=payload["total"],
             )
 
-        devices, variables, puede_ver_consumo = _walk_devices(payload)
+        devices, variables, puede_ver_consumo = walk_devices(payload)
+        # El orden sale de acá y no del panel: sede, después gateway, después
+        # equipo. Es el mismo que el árbol del CRM, así que quien mira los dos
+        # ve lo mismo en el mismo lugar.
+        devices.sort(key=lambda d: (d.sede, d.gateway, d.nombre))
         fleet = ClientFleet(
             client_id=client_id,
-            device_ids=frozenset(devices),
-            device_names=devices,
+            devices=tuple(devices),
             variables=tuple(sorted(variables.values(), key=lambda v: v.nombre)),
             puede_ver_consumo=puede_ver_consumo,
         )

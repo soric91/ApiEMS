@@ -17,7 +17,7 @@ from app.dependencies.influx import get_influx_repository, get_unscoped_reposito
 from app.models.variables import Variable
 from app.repositories.influx import InfluxRepository
 from app.repositories.scoped import ScopedInfluxRepository
-from app.services.crm.fleet import ClientFleet
+from app.services.crm.fleet import ClientFleet, FleetDevice
 from tests.fakes import FakeInfluxRepository
 
 MIO = "bf6a469f-4c2a-4402-9438-49a491ad2238"
@@ -27,8 +27,18 @@ AJENO = "00000000-0000-4000-8000-000000000000"
 def _fleet() -> ClientFleet:
     return ClientFleet(
         client_id="cliente-1",
-        device_ids=frozenset({MIO}),
-        device_names={MIO: "Medidor"},
+        devices=(
+            FleetDevice(
+                id=MIO,
+                nombre="Medidor",
+                modbus_id=1,
+                sede_id="s1",
+                sede="Sede",
+                gateway_id="g1",
+                gateway="GW-1",
+                gateway_en_linea=True,
+            ),
+        ),
         variables=(),
         puede_ver_consumo=True,
     )

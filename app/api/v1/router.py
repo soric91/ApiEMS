@@ -7,6 +7,7 @@ from app.api.v1.analytics import router as analytics_router
 from app.api.v1.consumption import router as consumption_router
 from app.api.v1.costs import router as costs_router
 from app.api.v1.dashboard import router as dashboard_router
+from app.api.v1.devices import router as devices_router
 from app.api.v1.export import router as export_router
 from app.api.v1.history import router as history_router
 from app.api.v1.kpis import router as kpis_router
@@ -26,6 +27,7 @@ api_router.include_router(kpis_router)
 api_router.include_router(reports_router)
 api_router.include_router(alerts_router)
 api_router.include_router(costs_router)
+api_router.include_router(devices_router)
 api_router.include_router(variables_router)
 
 

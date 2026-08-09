@@ -2,7 +2,7 @@
 
 Protocolo (JSON):
 - Cliente → servidor:
-    {"action": "subscribe", "variable": "POWER_ACTIVE_INST_TOTAL"}
+    {"action": "subscribe", "variable": "TotW", "device_id": "<uuid>"}  device_id opcional
     {"action": "unsubscribe"}
     {"action": "ping"}
 - Servidor → cliente:
@@ -139,6 +139,72 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         manager.disconnect(websocket)
 
 
+async def _suscribir(
+    manager: ConnectionManager,
+    state: RealtimeState,
+    websocket: WebSocket,
+    payload: dict[str, Any],
+) -> None:
+    """Atiende `subscribe`. Vive aparte porque tiene varias salidas distintas.
+
+    Cada `return` es un rechazo con su propio motivo —variable desconocida,
+    equipo ajeno— y colapsarlos en uno solo haría que el panel no pueda
+    distinguir qué corregir.
+    """
+    raw_variable = payload.get("variable")
+    try:
+        variable = Variable(raw_variable)
+    except ValueError:
+        await manager.send(
+            websocket,
+            {
+                "type": "error",
+                "message": f"Variable desconocida: {raw_variable!r}",
+                "valid_variables": [v.value for v in Variable],
+            },
+        )
+        return
+    # Acotar a un equipo es opcional: sin él se sigue recibiendo todo lo
+    # que el cliente puede ver, que es lo correcto mientras no eligió
+    # medidor. Un equipo ajeno se rechaza acá y no se ignora en silencio:
+    # el panel quedaría esperando datos que nunca van a llegar.
+    raw_device = payload.get("device_id")
+    device_id = str(raw_device) if raw_device else None
+    if device_id is not None and not manager.may_see(websocket, device_id):
+        await manager.send(
+            websocket,
+            {"type": "error", "message": "Ese equipo no es de esta empresa"},
+        )
+        return
+
+    manager.subscribe(websocket, variable, device_id)
+    await manager.send(
+        websocket,
+        {"type": "subscribed", "variable": variable.value, "device_id": device_id},
+    )
+    # Valor actual inmediato para que el cliente no espere al próximo
+    # mensaje MQTT. Pasa por el mismo filtro que broadcast(): el estado en
+    # memoria es de toda la flota, y sin este chequeo el primer envío tras
+    # suscribirse sería el único que se saltea el recorte por cliente.
+    for snapshot in state.values_of(variable.value):
+        if not manager.may_see(websocket, snapshot.device_id):
+            continue
+        if device_id is not None and snapshot.device_id != device_id:
+            continue
+        await manager.send(
+            websocket,
+            {
+                "type": "data",
+                "variable": variable.value,
+                "value": snapshot.data[variable.value],
+                "device_id": snapshot.device_id,
+                "device_name": snapshot.device_name,
+                "timestamp": snapshot.timestamp.isoformat(),
+            },
+        )
+    return
+
+
 async def _handle_message(
     manager: ConnectionManager,
     state: RealtimeState,
@@ -158,40 +224,9 @@ async def _handle_message(
     action = payload.get("action")
 
     if action == "subscribe":
-        raw_variable = payload.get("variable")
-        try:
-            variable = Variable(raw_variable)
-        except ValueError:
-            await manager.send(
-                websocket,
-                {
-                    "type": "error",
-                    "message": f"Variable desconocida: {raw_variable!r}",
-                    "valid_variables": [v.value for v in Variable],
-                },
-            )
-            return
-        manager.subscribe(websocket, variable)
-        await manager.send(websocket, {"type": "subscribed", "variable": variable.value})
-        # Valor actual inmediato para que el cliente no espere al próximo
-        # mensaje MQTT. Pasa por el mismo filtro que broadcast(): el estado en
-        # memoria es de toda la flota, y sin este chequeo el primer envío tras
-        # suscribirse sería el único que se saltea el recorte por cliente.
-        for snapshot in state.values_of(variable.value):
-            if not manager.may_see(websocket, snapshot.device_id):
-                continue
-            await manager.send(
-                websocket,
-                {
-                    "type": "data",
-                    "variable": variable.value,
-                    "value": snapshot.data[variable.value],
-                    "device_id": snapshot.device_id,
-                    "device_name": snapshot.device_name,
-                    "timestamp": snapshot.timestamp.isoformat(),
-                },
-            )
+        await _suscribir(manager, state, websocket, payload)
         return
+
 
     if action == "unsubscribe":
         manager.unsubscribe(websocket)

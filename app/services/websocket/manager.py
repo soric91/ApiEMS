@@ -5,6 +5,7 @@ reemplaza la anterior (el cliente solo recibe la variable activa).
 Serialización con orjson.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 import orjson
@@ -18,6 +19,20 @@ from app.schemas.mqtt import DeviceReading
 logger = get_logger("apiems.ws")
 
 
+@dataclass(frozen=True)
+class Suscripcion:
+    """Qué está mirando una conexión: una variable, de un equipo o de todos.
+
+    `device_id` en `None` mantiene el comportamiento viejo —todo lo que el
+    cliente puede ver— y es lo correcto mientras el panel no eligió medidor.
+    Elegido uno, filtrar acá y no en el navegador evita mandar diecinueve
+    mensajes por segundo que el cliente va a descartar.
+    """
+
+    variable: Variable
+    device_id: str | None
+
+
 class ConnectionManager:
     """Conexiones abiertas, cada una con su variable y su flota.
 
@@ -27,7 +42,7 @@ class ConnectionManager:
     """
 
     def __init__(self) -> None:
-        self._subscriptions: dict[WebSocket, Variable | None] = {}
+        self._subscriptions: dict[WebSocket, Suscripcion | None] = {}
         # Qué equipos puede ver cada conexión. Sin entrada = no ve ninguno,
         # que es el valor correcto para una conexión a medio establecer.
         self._visible: dict[WebSocket, frozenset[str]] = {}
@@ -67,8 +82,10 @@ class ConnectionManager:
             return False
         return device_id in self._visible.get(websocket, frozenset())
 
-    def subscribe(self, websocket: WebSocket, variable: Variable) -> None:
-        self._subscriptions[websocket] = variable
+    def subscribe(
+        self, websocket: WebSocket, variable: Variable, device_id: str | None = None
+    ) -> None:
+        self._subscriptions[websocket] = Suscripcion(variable, device_id)
 
     def unsubscribe(self, websocket: WebSocket) -> None:
         self._subscriptions[websocket] = None
@@ -79,12 +96,21 @@ class ConnectionManager:
     async def broadcast(self, reading: DeviceReading) -> None:
         """Empuja la lectura a cada cliente suscrito a una variable presente en ella."""
         dead: list[WebSocket] = []
-        for websocket, variable in list(self._subscriptions.items()):
-            if variable is None or variable.value not in reading.data:
+        for websocket, suscripcion in list(self._subscriptions.items()):
+            if suscripcion is None or suscripcion.variable.value not in reading.data:
                 continue
             if not self.may_see(websocket, reading.identify_device):
                 continue
-            payload = _data_message(reading, variable)
+            # Una suscripción con equipo recibe solo ese equipo. Sin esto, un
+            # cliente con veinte medidores recibía los veinte para la misma
+            # variable y el panel se quedaba con el último que llegara: la
+            # cifra saltaba entre medidores sin que nada lo indicara.
+            if (
+                suscripcion.device_id is not None
+                and reading.identify_device != suscripcion.device_id
+            ):
+                continue
+            payload = _data_message(reading, suscripcion.variable)
             try:
                 await self.send(websocket, payload)
             except Exception:

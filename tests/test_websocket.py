@@ -53,7 +53,7 @@ def test_subscribe_ack_and_current_value(client: TestClient, app: FastAPI) -> No
     with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
         ws.send_json({"action": "subscribe", "variable": "PhV_phsA"})
         ack = ws.receive_json()
-        assert ack == {"type": "subscribed", "variable": "PhV_phsA"}
+        assert ack == {"type": "subscribed", "variable": "PhV_phsA", "device_id": None}
         current = ws.receive_json()
         assert current["type"] == "data"
         assert current["value"] == 120.4
@@ -359,3 +359,97 @@ class TestTheTokenIsNotInTheUrl:
             ws.send_json({"action": "ping"})
 
             assert ws.receive_json()["type"] == "pong"
+
+
+# --- suscripción acotada a un equipo -------------------------------------
+#
+# El bug que motivó esto: la suscripción era solo por variable, así que un
+# cliente con veinte medidores recibía los veinte para `TotW` y el panel se
+# quedaba con el último que llegara. La cifra de la frontera saltaba entre
+# medidores sin que nada lo indicara. Con un solo medidor era invisible.
+
+OTRO_EQUIPO = "11111111-2222-4333-8444-555555555555"
+
+
+def _lectura(device_id: str, valor: float) -> DeviceReading:
+    return DeviceReading(
+        device_name=f"Medidor {device_id[:4]}",
+        device_id=11,
+        identify_device=device_id,
+        device_type="CT_Meter",
+        timestamp=datetime(2026, 7, 16, 13, 26, 0, tzinfo=UTC),
+        success=True,
+        error=None,
+        data={"TotW": valor},
+    )
+
+
+def test_una_suscripcion_con_equipo_solo_recibe_ese_equipo(
+    client: TestClient, app: FastAPI, fleet_de_dos: None
+) -> None:
+    manager: ConnectionManager = app.state.ws_manager
+
+    with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
+        ws.send_json(
+            {"action": "subscribe", "variable": "TotW", "device_id": TEST_DEVICE_ID}
+        )
+        assert ws.receive_json()["type"] == "subscribed"
+
+        # El ajeno primero: si el filtro no existiera, este llegaría y el test
+        # leería su valor creyendo que es el del equipo elegido.
+        asyncio.run(manager.broadcast(_lectura(OTRO_EQUIPO, 999.0)))
+        asyncio.run(manager.broadcast(_lectura(TEST_DEVICE_ID, 42.0)))
+
+        recibido = ws.receive_json()
+        assert recibido["value"] == 42.0
+        assert recibido["device_id"] == TEST_DEVICE_ID
+
+
+def test_sin_equipo_se_siguen_recibiendo_todos(
+    client: TestClient, app: FastAPI, fleet_de_dos: None
+) -> None:
+    """Es lo correcto mientras el panel no eligió medidor: no se le puede
+    adivinar cuál quiere, y no mandarle nada lo dejaría en blanco."""
+    manager: ConnectionManager = app.state.ws_manager
+
+    with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
+        ws.send_json({"action": "subscribe", "variable": "TotW"})
+        assert ws.receive_json()["device_id"] is None
+
+        asyncio.run(manager.broadcast(_lectura(OTRO_EQUIPO, 999.0)))
+        asyncio.run(manager.broadcast(_lectura(TEST_DEVICE_ID, 42.0)))
+
+        assert [ws.receive_json()["value"] for _ in range(2)] == [999.0, 42.0]
+
+
+def test_un_equipo_de_otra_empresa_se_rechaza(client: TestClient) -> None:
+    """Y no se ignora en silencio: el panel quedaría esperando datos que nunca
+    van a llegar, que se ve igual que un medidor apagado."""
+    ajeno = "99999999-8888-4777-8666-555555555555"
+
+    with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
+        ws.send_json({"action": "subscribe", "variable": "TotW", "device_id": ajeno})
+        msg = ws.receive_json()
+        assert msg["type"] == "error"
+        assert "empresa" in msg["message"]
+
+
+def test_el_valor_actual_inmediato_tambien_se_acota(
+    client: TestClient, app: FastAPI, fleet_de_dos: None
+) -> None:
+    """Al suscribirse se manda el último valor conocido para no esperar al
+    próximo mensaje MQTT. Ese envío también tiene que respetar el equipo — si
+    no, el primer número que ve el panel sería de otro medidor."""
+    state: RealtimeState = app.state.realtime_state
+    state.update(_lectura(OTRO_EQUIPO, 999.0))
+    state.update(_lectura(TEST_DEVICE_ID, 42.0))
+
+    with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
+        ws.send_json(
+            {"action": "subscribe", "variable": "TotW", "device_id": TEST_DEVICE_ID}
+        )
+        assert ws.receive_json()["type"] == "subscribed"
+
+        actual = ws.receive_json()
+        assert actual["device_id"] == TEST_DEVICE_ID
+        assert actual["value"] == 42.0

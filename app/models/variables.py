@@ -47,6 +47,15 @@ class Variable(StrEnum):
     # la energía de un rango y last() para el valor puntual.
     POWER_ACTIVE_TOTAL_POS = "TotWh_import"
     POWER_ACTIVE_TOTAL_NEG = "TotWh_export"
+    # --- Contadores acumulativos de energía reactiva (kvarh). Igual que los
+    # activos: monótonos crecientes, solo difference()/last(). Los cuatro
+    # cuadrantes (IEC 60375): Q1/Q2 es reactiva importada de la red (Q1
+    # inductiva, Q2 capacitiva) y Q3/Q4 reactiva exportada a la red (Q3
+    # capacitiva, Q4 inductiva).
+    POWER_REACTIVE_QUAD1 = "Q1Eq"
+    POWER_REACTIVE_QUAD2 = "Q2Eq"
+    POWER_REACTIVE_QUAD3 = "Q3Eq"
+    POWER_REACTIVE_QUAD4 = "Q4Eq"
 
 
 class Aggregation(StrEnum):
@@ -57,7 +66,23 @@ class Aggregation(StrEnum):
 
 
 CUMULATIVE_VARIABLES: frozenset[Variable] = frozenset(
-    {Variable.POWER_ACTIVE_TOTAL_POS, Variable.POWER_ACTIVE_TOTAL_NEG}
+    {
+        Variable.POWER_ACTIVE_TOTAL_POS,
+        Variable.POWER_ACTIVE_TOTAL_NEG,
+        Variable.POWER_REACTIVE_QUAD1,
+        Variable.POWER_REACTIVE_QUAD2,
+        Variable.POWER_REACTIVE_QUAD3,
+        Variable.POWER_REACTIVE_QUAD4,
+    }
+)
+
+# Los cuadrantes de energía reactiva en orden q1..q4. Los dos primeros
+# importan reactiva de la red y los dos últimos la exportan (IEC 60375).
+REACTIVE_QUADRANTS: tuple[Variable, ...] = (
+    Variable.POWER_REACTIVE_QUAD1,
+    Variable.POWER_REACTIVE_QUAD2,
+    Variable.POWER_REACTIVE_QUAD3,
+    Variable.POWER_REACTIVE_QUAD4,
 )
 
 INSTANT_VARIABLES: frozenset[Variable] = frozenset(set(Variable) - CUMULATIVE_VARIABLES)

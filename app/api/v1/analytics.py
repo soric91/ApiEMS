@@ -26,6 +26,7 @@ from app.schemas.analytics import (
     HourProfilePoint,
     LoadFactorResult,
     MaxDemandResult,
+    ReactiveQuadrantsResult,
     WeekdayProfilePoint,
 )
 from app.schemas.common import ApiResponse
@@ -35,6 +36,7 @@ from app.services.analytics.compare import compare_periods
 from app.services.analytics.demand import max_demand
 from app.services.analytics.load_factor import load_factor
 from app.services.analytics.profile import daily_profile, weekday_profile
+from app.services.analytics.reactive import reactive_quadrants
 from app.services.analytics.summary import analytics_summary
 from app.services.influx.cache import cached_energy_total
 from app.services.periods import PeriodBounds, resolve_period
@@ -224,6 +226,26 @@ async def analytics_compare(
             status.HTTP_400_BAD_REQUEST, "cada rango debe tener 'from' anterior a 'to'"
         )
     return ApiResponse(data=await compare_periods(repo, from_a, to_a, from_b, to_b, device_id))
+
+
+@router.get(
+    "/reactive-quadrants",
+    summary="Cuadrantes de energía reactiva (kvarh)",
+    response_model=ApiResponse[ReactiveQuadrantsResult],
+)
+async def analytics_reactive_quadrants(
+    repo: RepoDep,
+    settings: SettingsDep,
+    fleet: CurrentFleet,
+    from_: FromQuery = None,
+    to: ToQuery = None,
+    device_id: str | None = None,
+) -> ApiResponse[ReactiveQuadrantsResult]:
+    """Energía reactiva del período por cuadrante (kvarh): Q1/Q2 importada de
+    la red (inductiva/capacitiva), Q3/Q4 exportada a la red, su balance y la
+    tendencia por ventana. Por defecto: hoy."""
+    bounds = _resolve_range(settings, from_, to)
+    return ApiResponse(data=await reactive_quadrants(repo, bounds.start, bounds.stop, device_id))
 
 
 @router.get(

@@ -7,7 +7,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/fastapi-async-009688.svg)](https://fastapi.tiangolo.com/)
 [![InfluxDB](https://img.shields.io/badge/influxdb-2.7-22adf6.svg)](https://www.influxdata.com/)
-[![Tests](https://img.shields.io/badge/tests-317%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-324%20passed-brightgreen.svg)](tests/)
 
 [Qué hace](#qué-hace) •
 [Instalación](#instalación) •
@@ -279,6 +279,7 @@ Todos bajo `/api/v1`, todos con `Authorization: Bearer <token del CRM>`.
 | `GET /history` · `/history/downsample` · `/history/range`      | Series temporales                                                                 |
 | `GET /costs/range`                                             | Costo de un rango, con la tarifa que el CRM tenga cargada                         |
 | `GET /analytics/summary` · `daily-profile` · `monthly-profile` | Resumen de 30 días y perfiles                                                     |
+| `GET /analytics/reactive-quadrants`                            | Energía reactiva por cuadrante (kvarh): Q1/Q2 importada, Q3/Q4 exportada          |
 | `GET /analytics/compare`                                       | Comparación A vs B — caso de uso aparte de lo consolidado                         |
 | `GET /alerts`                                                  | Alertas recientes                                                                 |
 | `WS /ws`                                                       | Lecturas en vivo                                                                  |

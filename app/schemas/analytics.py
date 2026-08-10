@@ -98,3 +98,38 @@ class AnalyticsSummary(BaseModel):
     peak_consumption_hour: int | None
     peak_export_hour: int | None
     efficiency: EfficiencyRecommendation | None
+
+
+class ReactiveQuadrantPoint(BaseModel):
+    """Energía reactiva (kvarh) de cada cuadrante en una ventana del período."""
+
+    time: datetime
+    q1_kvarh: float
+    q2_kvarh: float
+    q3_kvarh: float
+    q4_kvarh: float
+
+
+class ReactiveQuadrantsResult(BaseModel):
+    """Energía reactiva (kvarh) del período por cuadrante.
+
+    Q1/Q2 es reactiva importada de la red (Q1 inductiva, Q2 capacitiva);
+    Q3/Q4 es reactiva exportada a la red (Q3 capacitiva, Q4 inductiva) — IEC
+    60375. `dominant` es el cuadrante con más energía del período, o None si
+    no hubo ninguna. `balance` positivo significa que la red le entrega
+    reactiva al cliente.
+    """
+
+    period_start: datetime
+    period_end: datetime
+    device_id: str | None
+    q1_kvarh: float
+    q2_kvarh: float
+    q3_kvarh: float
+    q4_kvarh: float
+    total_import_kvarh: float  # q1 + q2
+    total_export_kvarh: float  # q3 + q4
+    balance_kvarh: float  # importado - exportado
+    dominant: str | None  # "q1" | "q2" | "q3" | "q4"
+    dominant_kvarh: float
+    trend: list[ReactiveQuadrantPoint]

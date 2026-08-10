@@ -67,6 +67,23 @@ class InfluxDataSource(Protocol):
         device_id: str | None = None,
     ) -> float | None: ...
 
+    async def energy_totals_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+    ) -> dict[Variable, float]: ...
+
+    async def energy_series_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+    ) -> dict[Variable, list[EnergyPoint]]: ...
+
 
 _BASE_FILTER = """
 from(bucket: _bucket)
@@ -84,9 +101,7 @@ _ONE_DEVICE_FILTER = "  |> filter(fn: (r) => r.identify_device == _device_id)\n"
 # Recorte por cliente. Sin esto, una consulta sin `device_id` agregaría los
 # equipos de TODAS las empresas — que es exactamente la fuga que el filtro por
 # flota existe para impedir.
-_MANY_DEVICES_FILTER = (
-    "  |> filter(fn: (r) => contains(value: r.identify_device, set: _devices))\n"
-)
+_MANY_DEVICES_FILTER = "  |> filter(fn: (r) => contains(value: r.identify_device, set: _devices))\n"
 
 
 def _device_filter(device_id: str | None, devices: Sequence[str] | None) -> str:
@@ -185,11 +200,7 @@ class InfluxRepository:
         if is_cumulative(variable):
             raise InvalidAggregationError(variable, aggregation)
 
-        flux = (
-            _BASE_FILTER
-            + _device_filter(device_id, devices)
-            + f"  |> {aggregation.value}()\n"
-        )
+        flux = _BASE_FILTER + _device_filter(device_id, devices) + f"  |> {aggregation.value}()\n"
         params = self._params(
             field=variable, start=start, stop=stop, device_id=device_id, devices=devices
         )
@@ -253,6 +264,113 @@ class InfluxRepository:
         )
         tables = await self._query(flux, params)
         return round(sum(self._values(tables)), 2)
+
+    async def energy_totals_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> dict[Variable, float]:
+        """Energía de VARIOS contadores en una sola consulta.
+
+        Un `filter` por conjunto de campos y un `group` por `_field` (uno por
+        cuadrante); `spread()` reduce cada grupo a `last - first`. Antes esto
+        eran N consultas —contadores activos y los cuatro cuadrantes reactivos
+        suelen pedirse juntos— y cada una pagaba la misma lectura del rango.
+        """
+        for c in counters:
+            if not is_cumulative(c):
+                raise ValueError(f"'{c}' no es un contador acumulativo")
+
+        flux = (
+            "from(bucket: _bucket)\n"
+            "  |> range(start: _start, stop: _stop)\n"
+            "  |> filter(fn: (r) => r._measurement == _measurement)\n"
+            "  |> filter(fn: (r) => contains(value: r._field, set: _fields))\n"
+            + _device_filter(device_id, devices)
+            + '  |> group(columns: ["_field"])\n'
+            + "  |> spread()\n"
+        )
+        params: dict[str, Any] = {
+            "_bucket": self._bucket,
+            "_measurement": MEASUREMENT,
+            "_fields": [c.value for c in counters],
+            "_start": start,
+            "_stop": stop,
+        }
+        if device_id is not None:
+            params["_device_id"] = device_id
+        elif devices is not None:
+            params["_devices"] = list(devices)
+
+        tables = await self._query(flux, params)
+        result: dict[Variable, float] = dict.fromkeys(counters, 0.0)
+        for table in tables:
+            if not table.records:
+                continue
+            field = table.records[0].values.get("_field")
+            values = self._values([table])
+            if field is not None and values:
+                result[Variable(field)] = values[0]
+        return result
+
+    async def energy_series_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> dict[Variable, list[EnergyPoint]]:
+        """Serie por ventana de VARIOS contadores en una sola consulta.
+
+        Mismo `group` por `_field` que `energy_totals_by_counter`, con
+        `difference()` por ventana a continuación. El rango se extiende una
+        ventana hacia atrás para que la primera ventana solicitada no pierda
+        su diferencia (igual que en `energy_series`).
+        """
+        for c in counters:
+            if not is_cumulative(c):
+                raise ValueError(f"'{c}' no es un contador acumulativo")
+
+        flux = (
+            "from(bucket: _bucket)\n"
+            "  |> range(start: _start, stop: _stop)\n"
+            "  |> filter(fn: (r) => r._measurement == _measurement)\n"
+            "  |> filter(fn: (r) => contains(value: r._field, set: _fields))\n"
+            + _device_filter(device_id, devices)
+            + '  |> group(columns: ["_field"])\n'
+            + "  |> aggregateWindow(every: _every, offset: _offset, fn: last, createEmpty: false)\n"
+            + '  |> difference(nonNegative: true, columns: ["_value"])\n'
+        )
+        params: dict[str, Any] = {
+            "_bucket": self._bucket,
+            "_measurement": MEASUREMENT,
+            "_fields": [c.value for c in counters],
+            "_start": start - every,
+            "_stop": stop,
+            "_every": every,
+            "_offset": flux_window_offset(self._tz_name, start),
+        }
+        if device_id is not None:
+            params["_device_id"] = device_id
+        elif devices is not None:
+            params["_devices"] = list(devices)
+
+        tables = await self._query(flux, params)
+        result: dict[Variable, list[EnergyPoint]] = {c: [] for c in counters}
+        for table in tables:
+            if not table.records:
+                continue
+            field = table.records[0].values.get("_field")
+            if field is None:
+                continue
+            points = [EnergyPoint(time=t, value=v) for t, v in self._records([table]) if t > start]
+            result[Variable(field)] = points
+        return result
 
     # ------------------------------------------------------------------
     # Dispositivos

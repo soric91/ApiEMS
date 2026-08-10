@@ -44,7 +44,7 @@ async def test_weekday_total_baseline_skips_below_min_samples() -> None:
     repo = FakeInfluxRepository()
     # 4 lunes (weekday=0) + 1 martes (weekday=1, insuficiente)
     mondays = [datetime(2026, 4, 6, tzinfo=UTC) + timedelta(weeks=i) for i in range(4)]
-    repo.energy_series_by_counter = {
+    repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [
             EnergyPoint(time=t, value=10.0 + i) for i, t in enumerate(mondays)
         ]

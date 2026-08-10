@@ -125,13 +125,34 @@ class ScopedInfluxRepository:
             counter, start, stop, self._check(device_id), devices=self._scope
         )
 
+    async def energy_totals_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+    ) -> dict[Variable, float]:
+        return await self._inner.energy_totals_by_counter(
+            counters, start, stop, self._check(device_id), devices=self._scope
+        )
+
+    async def energy_series_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+    ) -> dict[Variable, list[EnergyPoint]]:
+        return await self._inner.energy_series_by_counter(
+            counters, start, stop, every, self._check(device_id), devices=self._scope
+        )
+
     async def field_keys(self, lookback: timedelta = timedelta(days=30)) -> list[str]:
         """Los campos con datos, ya acotados a los equipos de este cliente."""
         return await self._inner.field_keys(self._scope, lookback)
 
-    async def list_device_ids(
-        self, lookback: timedelta = timedelta(days=30)
-    ) -> list[str]:
+    async def list_device_ids(self, lookback: timedelta = timedelta(days=30)) -> list[str]:
         """Solo los equipos de este cliente que además reportaron algo.
 
         La intersección importa: la flota dice qué existe en el CRM, InfluxDB

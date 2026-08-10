@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from app.models.variables import REACTIVE_QUADRANTS
 from app.repositories.influx import InfluxDataSource
 from app.schemas.analytics import ReactiveQuadrantPoint, ReactiveQuadrantsResult
-from app.services.influx.cache import cached_energy_series, cached_energy_total
+from app.services.influx.cache import cached_energy_series_by_counter, cached_energy_totals
 
 # Claves del payload en el mismo orden que REACTIVE_QUADRANTS.
 QUADRANT_KEYS: tuple[str, ...] = ("q1_kvarh", "q2_kvarh", "q3_kvarh", "q4_kvarh")
@@ -41,19 +41,17 @@ async def reactive_quadrants(
     device_id: str | None,
 ) -> ReactiveQuadrantsResult:
     every = _bucket(stop - start)
+    # Los cuatro cuadrantes se consultan JUNTOS: una sola consulta para los
+    # totales y otra para las series (group por `_field`), en vez de 8 idas a
+    # Influx. Los datos llegan a 1 Hz y cada consulta paga la lectura del
+    # rango entero, así que el costo de hacerlo por cuadrante era 4x.
+    counters = REACTIVE_QUADRANTS
     totals, series = await asyncio.gather(
-        asyncio.gather(
-            *(cached_energy_total(repo, v, start, stop, device_id) for v in REACTIVE_QUADRANTS)
-        ),
-        asyncio.gather(
-            *(
-                cached_energy_series(repo, v, start, stop, every, device_id)
-                for v in REACTIVE_QUADRANTS
-            )
-        ),
+        cached_energy_totals(repo, counters, start, stop, device_id),
+        cached_energy_series_by_counter(repo, counters, start, stop, every, device_id),
     )
 
-    q = [round(float(t), 2) for t in totals]
+    q = [round(float(totals[v]), 2) for v in REACTIVE_QUADRANTS]
     total_import = q[0] + q[1]
     total_export = q[2] + q[3]
     balance = total_import - total_export
@@ -66,8 +64,8 @@ async def reactive_quadrants(
     # zona horaria y del inicio), así que los `time` de las cuatro series
     # coinciden uno a uno y se alinean por instante exacto.
     by_time: dict[datetime, list[float]] = {}
-    for index, points in enumerate(series):
-        for point in points:
+    for index, variable in enumerate(REACTIVE_QUADRANTS):
+        for point in series[variable]:
             by_time.setdefault(point.time, [0.0] * 4)[index] = point.value
 
     trend = [

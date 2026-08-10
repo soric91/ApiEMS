@@ -23,7 +23,7 @@ class FakeInfluxRepository:
         self.calls: list[tuple[object, ...]] = []
         # Overrides opcionales por variable/contador, para tests que
         # necesitan distinguir p. ej. importación vs exportación.
-        self.energy_series_by_counter: dict[Variable, list[EnergyPoint]] = {}
+        self.energy_series_points_by_counter: dict[Variable, list[EnergyPoint]] = {}
         self.instant_series_by_variable: dict[Variable, list[TimeSeriesPoint]] = {}
         self.energy_total_by_counter: dict[Variable, float] = {}
         # Qué campos "existen" en Influx, y con qué equipos se preguntó.
@@ -57,7 +57,47 @@ class FakeInfluxRepository:
         devices: Sequence[str] | None = None,
     ) -> list[EnergyPoint]:
         self.calls.append(("energy_series", counter.value, str(device_id), tuple(devices or ())))
-        return self.energy_series_by_counter.get(counter, self.energy_series_points)
+        return self.energy_series_points_by_counter.get(counter, self.energy_series_points)
+
+    async def energy_totals_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> dict[Variable, float]:
+        self.calls.append(
+            (
+                "energy_totals_by_counter",
+                tuple(c.value for c in counters),
+                str(device_id),
+                tuple(devices or ()),
+            )
+        )
+        return {c: self.energy_total_by_counter.get(c, self.energy_total_value) for c in counters}
+
+    async def energy_series_by_counter(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> dict[Variable, list[EnergyPoint]]:
+        self.calls.append(
+            (
+                "energy_series_by_counter",
+                tuple(c.value for c in counters),
+                str(device_id),
+                tuple(devices or ()),
+            )
+        )
+        return {
+            c: self.energy_series_points_by_counter.get(c, self.energy_series_points)
+            for c in counters
+        }
 
     async def instant_series(
         self,

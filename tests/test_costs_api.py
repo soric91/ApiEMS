@@ -46,7 +46,7 @@ def test_costs_day_computes_from_series(
 ) -> None:
     month = _seed_current_month_tariff(app)
     now = datetime.now(tz=UTC)
-    fake_influx_repo.energy_series_by_counter = {
+    fake_influx_repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [EnergyPoint(time=now, value=10.0)],
         Variable.POWER_ACTIVE_TOTAL_NEG: [EnergyPoint(time=now, value=2.0)],
     }
@@ -69,7 +69,7 @@ def test_costs_export_beyond_import_uses_tier2_rate(
 ) -> None:
     _seed_current_month_tariff(app)
     now = datetime.now(tz=UTC)
-    fake_influx_repo.energy_series_by_counter = {
+    fake_influx_repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [EnergyPoint(time=now, value=5.0)],
         Variable.POWER_ACTIVE_TOTAL_NEG: [EnergyPoint(time=now, value=20.0)],
     }
@@ -121,7 +121,7 @@ def test_costs_range_computes_series(
     )
     app.dependency_overrides[get_tariff_config] = lambda: config
     point_time = datetime(2026, 1, 15, tzinfo=UTC)
-    fake_influx_repo.energy_series_by_counter = {
+    fake_influx_repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [EnergyPoint(time=point_time, value=10.0)],
         Variable.POWER_ACTIVE_TOTAL_NEG: [],
     }

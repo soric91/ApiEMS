@@ -71,6 +71,35 @@ async def cached_energy_series(
     return await repo.energy_series(counter, start, stop, every, device_id)
 
 
+@cached(ttl_seconds=ENERGY_TTL)
+async def cached_energy_totals(
+    repo: InfluxDataSource,
+    counters: tuple[Variable, ...],
+    start: datetime,
+    stop: datetime,
+    device_id: str | None = None,
+) -> dict[Variable, float]:
+    """Totales de VARIOS contadores en una sola consulta, cacheado.
+
+    Para cuando se piden juntos (los cuatro cuadrantes reactivos, o consumo
+    por fases): una sola ida a Influx en vez de una por contador.
+    """
+    return await repo.energy_totals_by_counter(counters, start, stop, device_id)
+
+
+@cached(ttl_seconds=SERIES_TTL)
+async def cached_energy_series_by_counter(
+    repo: InfluxDataSource,
+    counters: tuple[Variable, ...],
+    start: datetime,
+    stop: datetime,
+    every: timedelta,
+    device_id: str | None = None,
+) -> dict[Variable, list[EnergyPoint]]:
+    """Series por ventana de VARIOS contadores en una sola consulta, cacheado."""
+    return await repo.energy_series_by_counter(counters, start, stop, every, device_id)
+
+
 @cached(ttl_seconds=SERIES_TTL)
 async def cached_instant_series(
     repo: InfluxDataSource,

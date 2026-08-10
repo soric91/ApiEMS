@@ -114,7 +114,7 @@ def test_reactive_quadrants_trend_merges_quadrants_by_time(
 ) -> None:
     t1 = datetime(2026, 7, 16, 10, 0, tzinfo=UTC)
     t2 = datetime(2026, 7, 16, 11, 0, tzinfo=UTC)
-    fake_influx_repo.energy_series_by_counter = {
+    fake_influx_repo.energy_series_points_by_counter = {
         Q1: [EnergyPoint(time=t1, value=2.0), EnergyPoint(time=t2, value=3.0)],
         Q2: [EnergyPoint(time=t1, value=4.0)],
         Q3: [EnergyPoint(time=t2, value=5.0)],

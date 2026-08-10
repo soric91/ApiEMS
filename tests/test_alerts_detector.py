@@ -126,7 +126,7 @@ async def test_check_hourly_mixed_hour_positive_within_band_no_alert() -> None:
 async def test_check_daily_total_detects_anomaly() -> None:
     repo = FakeInfluxRepository()
     mondays = [datetime(2026, 3, 2, tzinfo=UTC) + timedelta(weeks=i) for i in range(4)]
-    repo.energy_series_by_counter = {
+    repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [
             EnergyPoint(time=t, value=10.0 + i) for i, t in enumerate(mondays)
         ]

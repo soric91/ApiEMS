@@ -111,7 +111,7 @@ async def test_daily_profile_groups_by_local_hour_not_utc() -> None:
 async def test_weekday_profile_averages_consumption_and_export() -> None:
     repo = FakeInfluxRepository()
     # Dos lunes distintos con consumo diferente
-    repo.energy_series_by_counter = {
+    repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [
             EnergyPoint(time=datetime(2026, 7, 6, tzinfo=UTC), value=10.0),  # lunes
             EnergyPoint(time=datetime(2026, 7, 13, tzinfo=UTC), value=20.0),  # lunes
@@ -139,7 +139,7 @@ async def test_weekday_profile_groups_by_local_weekday_not_utc() -> None:
     se contaría como martes, corriendo el consumo nocturno al día
     siguiente."""
     repo = FakeInfluxRepository()
-    repo.energy_series_by_counter = {
+    repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [
             EnergyPoint(time=datetime(2026, 7, 14, 2, tzinfo=UTC), value=10.0),
         ],

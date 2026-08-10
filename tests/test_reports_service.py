@@ -74,7 +74,7 @@ async def test_build_report_costs_uses_configured_tariff() -> None:
     )
 
     repo = FakeInfluxRepository()
-    repo.energy_series_by_counter = {
+    repo.energy_series_points_by_counter = {
         Variable.POWER_ACTIVE_TOTAL_POS: [
             EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=10.0)
         ],

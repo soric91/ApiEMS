@@ -54,7 +54,7 @@ def test_alerts_daily_total_null_with_degenerate_band(
         day = monday + timedelta(days=weekday_offset)
         for week in range(3):
             points.append(EnergyPoint(time=day + timedelta(weeks=week), value=10.0))
-    fake_influx_repo.energy_series_by_counter = {Variable.POWER_ACTIVE_TOTAL_POS: points}
+    fake_influx_repo.energy_series_points_by_counter = {Variable.POWER_ACTIVE_TOTAL_POS: points}
 
     response = client.get("/api/v1/alerts", headers=auth_headers)
     assert response.status_code == 200

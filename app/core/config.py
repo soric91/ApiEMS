@@ -38,6 +38,23 @@ class Settings(BaseSettings):
     # permisos en el navegador.
     INFLUX_TIMEOUT_MS: int = 60_000
 
+    # Cuánto hacia atrás mira cada consulta que barre el histórico. Están acá y
+    # no escritas en el código porque el costo depende de cuántos puntos tenga
+    # la instalación, y eso cambia por despliegue.
+    #
+    # `schema.fieldKeys` con predicado no lee el índice pese al nombre: por
+    # debajo hace `range |> filter |> keys |> distinct`, o sea recorre los
+    # datos. Con esta ventana en 30 días es la consulta más cara del panel, y
+    # solo sirve para decidir qué variables ofrecer. Una semana alcanza: un
+    # medidor que no reporta hace siete días no está "con datos" en ningún
+    # sentido útil.
+    VARIABLES_LOOKBACK_DAYS: int = 7
+
+    # La banda [p10, p90] por hora para detectar consumo anómalo. Más días dan
+    # una banda más estable, pero recorrer noventa cuando la instalación lleva
+    # tres es pagar el barrido por datos que no existen.
+    ALERTS_BASELINE_DAYS: int = 30
+
     # --- MQTT ---
     MQTT_HOST: str = "localhost"
     MQTT_PORT: int = 1883

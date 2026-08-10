@@ -29,6 +29,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
+from app.core.config import Settings, get_settings
 from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.repositories.scoped import ScopedInfluxRepository
@@ -38,10 +39,12 @@ from app.schemas.variables import VariableDisponible
 router = APIRouter(prefix="/variables", tags=["Variables"])
 
 RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
-# Cuánto hacia atrás se mira para decidir si una variable "tiene datos". Un
-# equipo apagado el fin de semana no debería desaparecer del panel el lunes.
-VENTANA = timedelta(days=30)
+# Cuánto hacia atrás se mira para decidir si una variable "tiene datos" sale de
+# `VARIABLES_LOOKBACK_DAYS`. Un equipo apagado el fin de semana no debería
+# desaparecer del panel el lunes, y una ventana muy larga hace que esta consulta
+# —que recorre datos, no el índice— domine el costo del panel.
 
 
 @router.get(
@@ -50,14 +53,15 @@ VENTANA = timedelta(days=30)
     response_model=ApiResponse[list[VariableDisponible]],
 )
 async def list_variables(
-    repo: RepoDep, fleet: CurrentFleet
+    repo: RepoDep, fleet: CurrentFleet, settings: SettingsDep
 ) -> ApiResponse[list[VariableDisponible]]:
     """Las variables que este cliente tiene cargadas, con `con_datos` cada una.
 
     El panel dibuja solo las que lo traen en `true`. Si la fase C no reportó
     nunca, no se dibuja su gráfica — en vez de mostrarla vacía.
     """
-    reportaron = set(await repo.field_keys(VENTANA))
+    ventana = timedelta(days=settings.VARIABLES_LOOKBACK_DAYS)
+    reportaron = set(await repo.field_keys(ventana))
 
     disponibles = [
         VariableDisponible(

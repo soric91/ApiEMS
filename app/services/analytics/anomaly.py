@@ -40,7 +40,7 @@ async def hourly_power_baseline(
     repo: InfluxDataSource,
     device_id: str | None,
     tz_name: str,
-    days: int = 90,
+    days: int = 30,
 ) -> dict[int, BandStats]:
     """Banda [p10, p90] de POWER_ACTIVE_INST_TOTAL por hora local (0-23),
     agrupando todos los días de la semana."""
@@ -83,7 +83,7 @@ async def weekday_total_baseline(
     repo: InfluxDataSource,
     device_id: str | None,
     tz_name: str,
-    days: int = 90,
+    days: int = 30,
 ) -> dict[int, BandStats]:
     """Banda [p10, p90] de energía importada diaria (kWh) por día de semana
     (0=lunes..6=domingo), sobre los últimos `days` días COMPLETOS."""

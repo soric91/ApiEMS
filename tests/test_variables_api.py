@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.repositories.influx import InfluxRepository
 from app.repositories.scoped import ScopedInfluxRepository
 from tests.conftest import TEST_DEVICE_ID
@@ -149,3 +150,30 @@ class TestItIsScoped:
     def test_without_a_token_it_is_rejected(self, client: TestClient) -> None:
         assert client.get(RUTA).status_code == 401
 
+
+
+class TestLaVentanaEsConfigurable:
+    """Cuánto histórico se recorre para decidir qué variables tienen datos.
+
+    `schema.fieldKeys` con predicado no lee el índice pese al nombre: recorre
+    los datos. Con la ventana en 30 días fue la consulta más cara del panel y
+    la que lo tumbó en producción, así que el valor tiene que poder ajustarse
+    por despliegue en vez de estar escrito en el código.
+    """
+
+    def test_la_consulta_usa_el_valor_configurado(
+        self,
+        app: Any,
+        client: TestClient,
+        fake_influx_repo: Any,
+        auth_headers: dict[str, str],
+        monkeypatch: Any,
+    ) -> None:
+        monkeypatch.setenv("VARIABLES_LOOKBACK_DAYS", "3")
+        get_settings.cache_clear()
+        app.dependency_overrides[get_settings] = get_settings
+
+        client.get(RUTA, headers=auth_headers)
+
+        assert fake_influx_repo.field_keys_lookback == timedelta(days=3)
+        get_settings.cache_clear()

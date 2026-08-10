@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     INFLUX_TOKEN: str = ""
     INFLUX_ORG: str = ""
     INFLUX_BUCKET: str = "modbus_data_v2"
+    # Cuánto espera una consulta antes de rendirse, en milisegundos.
+    #
+    # El valor por defecto de la librería son 10 s, y alcanza para una consulta
+    # sola. La pantalla de análisis dispara seis pesadas a la vez —dos períodos
+    # de treinta días, el perfil mensual, los costos— y en un servidor chico se
+    # encolan: cada una espera a las anteriores y todas cruzan el límite, hasta
+    # las de metadatos que en sí son instantáneas.
+    #
+    # Subirlo no las hace rápidas; evita que una espera legítima se convierta en
+    # un 500 que además llega sin cabecera CORS y se ve como un problema de
+    # permisos en el navegador.
+    INFLUX_TIMEOUT_MS: int = 60_000
 
     # --- MQTT ---
     MQTT_HOST: str = "localhost"

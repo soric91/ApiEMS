@@ -12,6 +12,31 @@ logger = get_logger("apiems.errors")
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(TimeoutError)
+    async def timeout_handler(  # pyright: ignore[reportUnusedFunction]
+        request: Request, exc: TimeoutError
+    ) -> JSONResponse:
+        """Una consulta a InfluxDB que no volvió a tiempo.
+
+        Sin este manejador la excepción sube hasta `ServerErrorMiddleware`, que
+        está **por fuera** del middleware de CORS: el 500 sale sin la cabecera
+        `Access-Control-Allow-Origin` y el navegador lo reporta como un problema
+        de permisos. Se pierden horas mirando la configuración de CORS por un
+        fallo que no tiene nada que ver.
+
+        503 y no 500 porque es exactamente eso: un servicio del que dependemos
+        no respondió a tiempo, y reintentar puede funcionar.
+        """
+        logger.warning("consulta_sin_respuesta", path=request.url.path)
+        body = ApiError(
+            message=(
+                "La base de datos de mediciones no respondió a tiempo. "
+                "Probá de nuevo o acotá el rango de fechas."
+            ),
+            error=None,
+        )
+        return JSONResponse(status_code=503, content=body.model_dump())
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(  # pyright: ignore[reportUnusedFunction]
         request: Request, exc: StarletteHTTPException

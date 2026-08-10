@@ -21,8 +21,13 @@ class InfluxService:
             url=self._settings.INFLUX_URL,
             token=self._settings.INFLUX_TOKEN,
             org=self._settings.INFLUX_ORG,
+            timeout=self._settings.INFLUX_TIMEOUT_MS,
         )
-        logger.info("influx_client_ready", url=self._settings.INFLUX_URL)
+        logger.info(
+            "influx_client_ready",
+            url=self._settings.INFLUX_URL,
+            timeout_ms=self._settings.INFLUX_TIMEOUT_MS,
+        )
 
     async def close(self) -> None:
         if self._client is not None:

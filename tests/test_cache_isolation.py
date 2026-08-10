@@ -20,6 +20,7 @@ from typing import Any, cast
 from app.core.cache import cached, clear_all_caches
 from app.repositories.influx import InfluxRepository
 from app.repositories.scoped import ScopedInfluxRepository
+from app.services.influx.cache import cached_field_keys
 
 EMPRESA_A = frozenset({"eq-de-la-empresa-a"})
 EMPRESA_B = frozenset({"eq-de-la-empresa-b"})
@@ -39,18 +40,28 @@ class _Interior:
     def __init__(self, marca: float = 0.0) -> None:
         self.marca = marca
         self.llamadas = 0
+        self.llamadas_field_keys = 0
 
     async def energy_total(self, *args: object, **kwargs: object) -> float:
         self.llamadas += 1
         return self.marca
+
+    async def field_keys(self, *args: object, **kwargs: object) -> list[str]:
+        self.llamadas_field_keys += 1
+        return [f"campo-de-{self.marca}"]
 
 
 _MARCAS = {EMPRESA_A: 1.0, EMPRESA_B: 2.0}
 
 
 def _acotado(devices: frozenset[str]) -> ScopedInfluxRepository:
-    marca = _MARCAS.get(devices, 9.0)
-    return ScopedInfluxRepository(cast(InfluxRepository, _Interior(marca)), devices)
+    return _con_doble(devices)[0]
+
+
+def _con_doble(devices: frozenset[str]) -> tuple[ScopedInfluxRepository, _Interior]:
+    """El repositorio y su doble, para poder contar llamadas sin hurgar adentro."""
+    interior = _Interior(_MARCAS.get(devices, 9.0))
+    return ScopedInfluxRepository(cast(InfluxRepository, interior), devices), interior
 
 
 class _Contador:
@@ -181,3 +192,43 @@ class TestElTiempoSigueEntrandoEnLaClave:
         await _consulta_cacheada(repo, DESDE, HASTA + timedelta(days=5))
 
         assert _contador.veces == 2
+
+
+class TestElCacheDeFieldKeys:
+    """La consulta más cara del panel, y la que más obvio era cachear.
+
+    `schema.fieldKeys` con predicado barre datos pese al nombre. Su respuesta
+    —qué variables tienen datos— cambia cuando alguien da de alta un medidor en
+    el CRM, no entre una carga del panel y la siguiente.
+    """
+
+    async def test_la_segunda_carga_no_vuelve_a_consultar(self) -> None:
+        clear_all_caches()
+        repo, interior = _con_doble(EMPRESA_A)
+
+        await cached_field_keys(repo, timedelta(days=7))
+        await cached_field_keys(repo, timedelta(days=7))
+
+        assert interior.llamadas_field_keys == 1
+
+    async def test_otra_empresa_no_recibe_las_variables_de_la_primera(
+        self,
+    ) -> None:
+        """El mismo defecto de la Fase 0, aplicado a algo peor: acá lo que se
+        filtraría es qué mide otra empresa."""
+        clear_all_caches()
+
+        de_a = await cached_field_keys(_acotado(EMPRESA_A), timedelta(days=7))
+        de_b = await cached_field_keys(_acotado(EMPRESA_B), timedelta(days=7))
+
+        assert de_a == ["campo-de-1.0"]
+        assert de_b == ["campo-de-2.0"]
+
+    async def test_una_ventana_distinta_es_otra_pregunta(self) -> None:
+        clear_all_caches()
+        repo, interior = _con_doble(EMPRESA_A)
+
+        await cached_field_keys(repo, timedelta(days=7))
+        await cached_field_keys(repo, timedelta(days=30))
+
+        assert interior.llamadas_field_keys == 2

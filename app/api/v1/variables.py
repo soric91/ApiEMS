@@ -35,6 +35,7 @@ from app.dependencies.influx import get_influx_repository
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.variables import VariableDisponible
+from app.services.influx.cache import cached_field_keys
 
 router = APIRouter(prefix="/variables", tags=["Variables"])
 
@@ -61,7 +62,7 @@ async def list_variables(
     nunca, no se dibuja su gráfica — en vez de mostrarla vacía.
     """
     ventana = timedelta(days=settings.VARIABLES_LOOKBACK_DAYS)
-    reportaron = set(await repo.field_keys(ventana))
+    reportaron = set(await cached_field_keys(repo, ventana))
 
     disponibles = [
         VariableDisponible(

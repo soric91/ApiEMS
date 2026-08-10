@@ -39,6 +39,23 @@ class ScopedInfluxRepository:
     def _scope(self) -> Sequence[str]:
         return self._devices
 
+    @property
+    def cache_identity(self) -> str:
+        """Qué empresa está preguntando, para la clave del caché.
+
+        Existe porque `@cached` armaba su clave con `str()` de los argumentos, y
+        el primero es este objeto: sin `__str__` propio, eso da su **dirección
+        de memoria**. Como se crea uno nuevo por petición, el recolector
+        reutiliza direcciones, y el repositorio de otra empresa podía caer en la
+        misma — sirviendo el consumo de un cliente a otro.
+
+        La identidad son los equipos que puede ver, que es exactamente lo que
+        hace distinta una respuesta de otra. Va como propiedad y no como
+        `__str__` para que sea parte explícita del contrato: un `__str__` lo
+        esconde, y alguien puede borrarlo sin ver qué rompe.
+        """
+        return "|".join(self._devices)
+
     async def instant_series(
         self,
         variable: Variable,

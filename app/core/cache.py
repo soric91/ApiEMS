@@ -30,6 +30,13 @@ def clear_all_caches() -> None:
 
 
 def _normalize(value: object, ttl_seconds: int) -> object:
+    # Un objeto que sabe identificarse manda su identidad, no su dirección.
+    # Sin esto la clave sería `<... object at 0x7f3a...>`, que describe dónde
+    # está el objeto y no de quién son los datos: dos empresas distintas pueden
+    # caer en la misma dirección y compartir entrada de caché.
+    identity = getattr(value, "cache_identity", None)
+    if isinstance(identity, str):
+        return identity
     if isinstance(value, datetime):
         return int(value.timestamp() // ttl_seconds)
     if isinstance(value, timedelta):

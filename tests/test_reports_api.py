@@ -55,3 +55,18 @@ def test_report_custom_ok(
     )
     assert response.status_code == 200
     assert response.json()["data"]["report_type"] == "custom"
+
+
+def test_report_daily_reads_power_series_once(
+    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
+) -> None:
+    """F2.2: KPIs + demanda + factor de carga + carga base comparten el mismo
+    `cached_instant_series(TotW)`: en /reports/daily la serie de potencia se
+    lee EXACTAMENTE una vez por familia, no una por cada indicador."""
+    response = client.get("/api/v1/reports/daily", headers=auth_headers)
+    assert response.status_code == 200
+
+    power_reads = [
+        call for call in fake_influx_repo.calls if call[0] == "instant_series" and call[1] == "TotW"
+    ]
+    assert len(power_reads) == 1

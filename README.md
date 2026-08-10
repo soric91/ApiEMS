@@ -7,7 +7,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/fastapi-async-009688.svg)](https://fastapi.tiangolo.com/)
 [![InfluxDB](https://img.shields.io/badge/influxdb-2.7-22adf6.svg)](https://www.influxdata.com/)
-[![Tests](https://img.shields.io/badge/tests-259%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-317%20passed-brightgreen.svg)](tests/)
 
 [Qué hace](#qué-hace) •
 [Instalación](#instalación) •
@@ -44,11 +44,11 @@ ApiEMS está entre los medidores y el panel del cliente. Escucha lo que los
 gateways publican por MQTT, lo guarda en InfluxDB, y responde las preguntas que
 un panel necesita hacer sobre esos datos.
 
-| | |
-|---|---|
-| 📥 **Ingesta por MQTT** | Un suscriptor que recibe cada lectura y la escribe en InfluxDB. |
-| 📊 **Consultas de consumo** | Histórico, energía importada y exportada, costos, comparativas, informes. |
-| ⚡ **Tiempo real** | Un WebSocket por variable, alimentado por el mismo flujo MQTT. |
+|                                |                                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| 📥 **Ingesta por MQTT**        | Un suscriptor que recibe cada lectura y la escribe en InfluxDB.                                          |
+| 📊 **Consultas de consumo**    | Histórico, energía importada y exportada, costos, comparativas, informes.                                |
+| ⚡ **Tiempo real**             | Un WebSocket por variable, alimentado por el mismo flujo MQTT.                                           |
 | 🔒 **Aislamiento por empresa** | Cada consulta sale acotada a los equipos de quien pregunta, sin que ningún endpoint tenga que acordarse. |
 
 Lo que **no** hace: emitir identidad. No tiene usuarios, ni contraseñas, ni
@@ -95,12 +95,12 @@ flowchart TB
 
 ## Requisitos
 
-| | |
-|---|---|
-| Python | 3.13 o superior |
-| InfluxDB | 2.7, alcanzable y con el bucket creado |
-| Broker MQTT | con TLS en producción |
-| CRMBackend | corriendo, con `/.well-known/jwks.json` alcanzable |
+|             |                                                    |
+| ----------- | -------------------------------------------------- |
+| Python      | 3.13 o superior                                    |
+| InfluxDB    | 2.7, alcanzable y con el bucket creado             |
+| Broker MQTT | con TLS en producción                              |
+| CRMBackend  | corriendo, con `/.well-known/jwks.json` alcanzable |
 
 ---
 
@@ -147,30 +147,30 @@ máquina.
 
 ### InfluxDB
 
-| Variable | Descripción |
-|---|---|
-| `INFLUX_URL` | **Con esquema**: `https://…`. Sin él, la aplicación arranca y dice estar lista, pero `ping()` devuelve falso y no hay dato que salga |
-| `INFLUX_TOKEN` · `INFLUX_ORG` · `INFLUX_BUCKET` | Credencial y destino |
+| Variable                                        | Descripción                                                                                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `INFLUX_URL`                                    | **Con esquema**: `https://…`. Sin él, la aplicación arranca y dice estar lista, pero `ping()` devuelve falso y no hay dato que salga |
+| `INFLUX_TOKEN` · `INFLUX_ORG` · `INFLUX_BUCKET` | Credencial y destino                                                                                                                 |
 
 ### MQTT
 
-| Variable | Descripción |
-|---|---|
-| `MQTT_HOST` · `MQTT_PORT` | `8883` con TLS |
-| `MQTT_USE_TLS` | `true` exige que `MQTT_HOST` sea el nombre del certificado |
-| `MQTT_USER` · `MQTT_PASSWORD` | |
-| `MQTT_TOPIC` · `MQTT_QOS` | |
-| `MQTT_CLIENT_ID` | **Único**. Dos clientes con el mismo se expulsan mutuamente en un bucle que desde afuera se ve como una red inestable |
+| Variable                      | Descripción                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `MQTT_HOST` · `MQTT_PORT`     | `8883` con TLS                                                                                                        |
+| `MQTT_USE_TLS`                | `true` exige que `MQTT_HOST` sea el nombre del certificado                                                            |
+| `MQTT_USER` · `MQTT_PASSWORD` |                                                                                                                       |
+| `MQTT_TOPIC` · `MQTT_QOS`     |                                                                                                                       |
+| `MQTT_CLIENT_ID`              | **Único**. Dos clientes con el mismo se expulsan mutuamente en un bucle que desde afuera se ve como una red inestable |
 
 ### CRMBackend
 
-| Variable | Descripción |
-|---|---|
-| `CRM_BASE_URL` | De ahí sale el JWKS y el árbol de flota |
-| `CRM_CLIENT_ID` · `CRM_CLIENT_SECRET` | La credencial de servicio |
-| `CRM_JWT_AUDIENCE` | `monitor`. Un token del CRM con otra audiencia no entra |
-| `CRM_JWKS_CACHE_SECONDS` | Cuánto se cachean las claves públicas |
-| `CRM_FLEET_CACHE_SECONDS` | Cuánto se cachea qué equipos tiene cada cliente |
+| Variable                              | Descripción                                             |
+| ------------------------------------- | ------------------------------------------------------- |
+| `CRM_BASE_URL`                        | De ahí sale el JWKS y el árbol de flota                 |
+| `CRM_CLIENT_ID` · `CRM_CLIENT_SECRET` | La credencial de servicio                               |
+| `CRM_JWT_AUDIENCE`                    | `monitor`. Un token del CRM con otra audiencia no entra |
+| `CRM_JWKS_CACHE_SECONDS`              | Cuánto se cachean las claves públicas                   |
+| `CRM_FLEET_CACHE_SECONDS`             | Cuánto se cachea qué equipos tiene cada cliente         |
 
 ---
 
@@ -181,11 +181,11 @@ pública, obtenida de `/.well-known/jwks.json`.
 
 Un token pasa tres compuertas, en este orden:
 
-| | |
-|---|---|
-| 1️⃣ **Audiencia** | Solo `monitor`. Un token de operador del CRM es válido y aun así no abre el consumo de nadie |
+|                             |                                                                                                                        |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 1️⃣ **Audiencia**            | Solo `monitor`. Un token de operador del CRM es válido y aun así no abre el consumo de nadie                           |
 | 2️⃣ **Contraseña pendiente** | Un token con alcance `password_change` sale de una contraseña que puso un administrador. Acá vale lo mismo que ninguno |
-| 3️⃣ **`puede_ver_consumo`** | El permiso vive en el CRM y es el único lugar donde se decide |
+| 3️⃣ **`puede_ver_consumo`**  | El permiso vive en el CRM y es el único lugar donde se decide                                                          |
 
 ```python
 algorithms=["RS256"]     # uno solo, nunca una lista
@@ -230,14 +230,14 @@ contar algo de otro cliente.
 Los nombres son los de **IEC 61850**, el estándar que usan los medidores. El
 mismo nombre viaja por MQTT, queda en InfluxDB y se pide en `?variable=`:
 
-| Nombre | Qué es |
-|---|---|
-| `PhV_phsA` · `PhV_phsB` · `PhV_phsC` | Tensión de fase |
-| `A_phsA` · `A_phsB` · `A_phsC` | Corriente |
-| `W_phsA` · `TotW` | Potencia activa |
-| `TotVAr` · `TotVA` · `TotPF` | Reactiva, aparente, factor de potencia |
-| `Hz` | Frecuencia |
-| `TotWh_import` · `TotWh_export` | **Contadores** de energía |
+| Nombre                               | Qué es                                 |
+| ------------------------------------ | -------------------------------------- |
+| `PhV_phsA` · `PhV_phsB` · `PhV_phsC` | Tensión de fase                        |
+| `A_phsA` · `A_phsB` · `A_phsC`       | Corriente                              |
+| `W_phsA` · `TotW`                    | Potencia activa                        |
+| `TotVAr` · `TotVA` · `TotPF`         | Reactiva, aparente, factor de potencia |
+| `Hz`                                 | Frecuencia                             |
+| `TotWh_import` · `TotWh_export`      | **Contadores** de energía              |
 
 Los identificadores de Python (`Variable.VOLTAGE_A`) siguen en inglés porque
 los usan catorce módulos; lo que importa es el valor, que es el que viaja.
@@ -267,20 +267,32 @@ esa variable no está en la respuesta.
 
 Todos bajo `/api/v1`, todos con `Authorization: Bearer <token del CRM>`.
 
-| | |
-|---|---|
-| `GET /variables` | Qué se puede graficar, ya cruzado contra InfluxDB |
-| `GET /dashboard` | Instantáneas más energía del período |
-| `GET /history` · `/history/downsample` · `/history/range` | Series temporales |
-| `GET /consumption` · `/export` | Energía importada y exportada |
-| `GET /costs/*` | Costo, con la tarifa que el CRM tenga cargada |
-| `GET /analytics/*` · `/compare` | Perfiles, anomalías, comparativas |
-| `GET /kpis` | Resumen |
-| `GET /reports/{daily,weekly,monthly,yearly,custom}` | Informes |
-| `GET /alerts` | Alertas recientes |
-| `GET /realtime/latest` | Último valor de cada equipo |
-| `WS /ws` | Lecturas en vivo |
-| `GET /health` | Sin dependencias externas |
+### Contrato vigente (la refactorización V1/V2 los hizo canónicos)
+
+|                                                                |                                                                                   |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `GET /dashboard/summary`                                       | **El panel en una llamada**: potencia en vivo, energía y costos del día/mes, KPIs |
+| `GET /dashboard/status`                                        | Conectividad (MQTT/Influx, equipos en línea) — a propósito fuera de `/summary`    |
+| `GET /reports/{daily,weekly,monthly,yearly,custom}`            | Informes: consumo, exportación, KPIs, analytics y costos del período              |
+| `GET /variables`                                               | Qué se puede graficar, ya cruzado contra InfluxDB                                 |
+| `GET /devices`                                                 | Inventario del CRM (los medidores del cliente, incluidos los de gateways caídos)  |
+| `GET /history` · `/history/downsample` · `/history/range`      | Series temporales                                                                 |
+| `GET /costs/range`                                             | Costo de un rango, con la tarifa que el CRM tenga cargada                         |
+| `GET /analytics/summary` · `daily-profile` · `monthly-profile` | Resumen de 30 días y perfiles                                                     |
+| `GET /analytics/compare`                                       | Comparación A vs B — caso de uso aparte de lo consolidado                         |
+| `GET /alerts`                                                  | Alertas recientes                                                                 |
+| `WS /ws`                                                       | Lecturas en vivo                                                                  |
+| `GET /health`                                                  | Sin dependencias externas                                                         |
+
+### Deprecados (esperando la fase destructiva V3)
+
+Los endpoints que la refactorización sustituyó siguen respondiendo con
+`deprecated=True` pero **el panel ya no los llama**: `/consumption`, `/export`,
+`/kpis`, `/analytics` (resumen general), `/analytics/max-demand`,
+`/analytics/load-factor`, `/analytics/base-load`, `/dashboard/cards`,
+`/realtime/latest` y el resto del grupo de reportes duplicados (21 en total). Sin
+consumidores, se borran en la fase V3 una vez el nuevo contrato lleve una semana
+en producción.
 
 ---
 
@@ -335,7 +347,7 @@ app/
 ## Tests
 
 ```bash
-uv run pytest              # 259 pruebas
+uv run pytest              # 317 pruebas
 uv run ruff check .
 uv run pyright app/ tests/
 ```
@@ -348,11 +360,11 @@ promedie.
 
 ## Troubleshooting
 
-| Síntoma | Causa probable |
-|---|---|
-| Arranca y dice estar listo, pero no sale ningún dato | `INFLUX_URL` sin esquema. `ping()` devuelve falso en silencio |
-| `Token inválido` con un token que parece bueno | Falta el extra `pyjwt[crypto]`. Sin él, RS256 falla y el mensaje no lo dice |
-| Reconexiones cada 5 segundos | `MQTT_CLIENT_ID` repetido. Dos clientes con el mismo id se expulsan mutuamente |
-| El histórico devuelve 0 puntos | Los nombres de las variables del CRM y los de InfluxDB no coinciden |
-| El WebSocket falla sin código de cierre | El servidor no devolvió el subprotocolo. Suele ser una imagen vieja |
-| `503` al pedir cualquier dato | No se pudo consultar la flota en el CRM. Se sirve lo cacheado si lo hay |
+| Síntoma                                              | Causa probable                                                                 |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Arranca y dice estar listo, pero no sale ningún dato | `INFLUX_URL` sin esquema. `ping()` devuelve falso en silencio                  |
+| `Token inválido` con un token que parece bueno       | Falta el extra `pyjwt[crypto]`. Sin él, RS256 falla y el mensaje no lo dice    |
+| Reconexiones cada 5 segundos                         | `MQTT_CLIENT_ID` repetido. Dos clientes con el mismo id se expulsan mutuamente |
+| El histórico devuelve 0 puntos                       | Los nombres de las variables del CRM y los de InfluxDB no coinciden            |
+| El WebSocket falla sin código de cierre              | El servidor no devolvió el subprotocolo. Suele ser una imagen vieja            |
+| `503` al pedir cualquier dato                        | No se pudo consultar la flota en el CRM. Se sirve lo cacheado si lo hay        |

@@ -8,12 +8,10 @@ efectivamente se importa de la red.
 
 from datetime import datetime
 
-import polars as pl
-
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.analytics import LoadFactorResult
-from app.services.analytics.common import auto_interval, series_max, series_mean
+from app.services.analytics.common import auto_interval, load_factor_result, power_frames
 from app.services.influx.cache import cached_instant_series
 
 
@@ -23,34 +21,9 @@ async def load_factor(
     stop: datetime,
     device_id: str | None,
 ) -> LoadFactorResult:
-    empty = LoadFactorResult(
-        period_start=start,
-        period_end=stop,
-        device_id=device_id,
-        average_import_w=None,
-        peak_import_w=None,
-        load_factor=None,
-    )
     every = auto_interval(start, stop)
     points = await cached_instant_series(
         repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
     )
-    if not points:
-        return empty
-
-    series = pl.Series([p.value for p in points])
-    importing = series.filter(series > 0)
-    if importing.is_empty():
-        return empty
-
-    avg = series_mean(importing)
-    peak = series_max(importing)
-    factor = round(avg / peak, 4) if peak > 0 else None
-    return LoadFactorResult(
-        period_start=start,
-        period_end=stop,
-        device_id=device_id,
-        average_import_w=round(avg, 2),
-        peak_import_w=round(peak, 2),
-        load_factor=factor,
-    )
+    _, importing = power_frames(points)
+    return load_factor_result(start, stop, device_id, importing)

@@ -1,0 +1,63 @@
+{
+  "consumption_month_kwh": 5.5,
+  "consumption_today_kwh": 5.5,
+  "costs_day": {
+    "consumption_cost_cop": 0.0,
+    "consumption_kwh": 5.5,
+    "device_id": "bf6a469f-4c2a-4402-9438-49a491ad2238",
+    "export_credit_cop": 0.0,
+    "export_kwh": 5.5,
+    "months_used": [],
+    "net_cost_cop": 0.0,
+    "period": "day",
+    "period_end": "<fecha>",
+    "period_start": "<fecha>",
+    "series": [],
+    "stale_months": [
+      "<mes>"
+    ]
+  },
+  "costs_month": {
+    "consumption_cost_cop": 0.0,
+    "consumption_kwh": 5.5,
+    "device_id": "bf6a469f-4c2a-4402-9438-49a491ad2238",
+    "export_credit_cop": 0.0,
+    "export_kwh": 5.5,
+    "months_used": [],
+    "net_cost_cop": 0.0,
+    "period": "month",
+    "period_end": "<fecha>",
+    "period_start": "<fecha>",
+    "series": [],
+    "stale_months": [
+      "<mes>"
+    ]
+  },
+  "current_a": 1.93,
+  "current_b": 2.81,
+  "device_id": "bf6a469f-4c2a-4402-9438-49a491ad2238",
+  "export_month_kwh": 5.5,
+  "export_today_kwh": 5.5,
+  "kpis": {
+    "consumption_daily_kwh": 5.5,
+    "consumption_monthly_kwh": 5.5,
+    "consumption_weekly_kwh": 5.5,
+    "current_avg_a": null,
+    "device_id": "bf6a469f-4c2a-4402-9438-49a491ad2238",
+    "export_daily_kwh": 5.5,
+    "export_monthly_kwh": 5.5,
+    "period_end": "<fecha>",
+    "period_start": "<fecha>",
+    "power_avg_w": null,
+    "power_factor_avg": null,
+    "power_max_w": null,
+    "voltage_avg_v": null,
+    "voltage_max_v": null,
+    "voltage_min_v": null
+  },
+  "last_update": "<fecha>",
+  "power_active_total_w": -442.2,
+  "power_factor": 0.75,
+  "voltage_a": 120.4,
+  "voltage_b": 121.2
+}

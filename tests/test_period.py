@@ -1,5 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
+from app.services.periods import PeriodBounds, resolve_period
 from app.utils.period import (
     flux_window_offset,
     month_starts_of_year,
@@ -59,3 +62,73 @@ def test_flux_window_offset_bogota_is_5h() -> None:
 
 def test_flux_window_offset_utc_is_zero() -> None:
     assert flux_window_offset("UTC", NOW) == timedelta(0)
+
+
+# --- resolve_period -----------------------------------------------------
+
+
+def test_resolve_period_day_preset() -> None:
+    bounds = resolve_period("day", TZ, NOW)
+    assert bounds.start == datetime(2026, 7, 16, 5, 0, 0, tzinfo=UTC)  # medianoche Bogotá
+    assert bounds.stop == NOW
+    assert bounds.interval == timedelta(hours=1)
+
+
+def test_resolve_period_week_preset_starts_monday() -> None:
+    bounds = resolve_period("week", TZ, NOW)
+    assert bounds.start == datetime(2026, 7, 13, 5, 0, 0, tzinfo=UTC)
+    assert bounds.interval == timedelta(days=1)
+
+
+def test_resolve_period_month_and_year_presets() -> None:
+    month = resolve_period("month", TZ, NOW)
+    year = resolve_period("year", TZ, NOW)
+    assert month.start == datetime(2026, 7, 1, 5, 0, 0, tzinfo=UTC)
+    assert year.start == datetime(2026, 1, 1, 5, 0, 0, tzinfo=UTC)
+    assert month.interval == year.interval == timedelta(days=1)
+
+
+def test_resolve_period_report_aliases_to_presets() -> None:
+    assert resolve_period("daily", TZ, NOW) == resolve_period("day", TZ, NOW)
+    assert resolve_period("weekly", TZ, NOW) == resolve_period("week", TZ, NOW)
+    assert resolve_period("monthly", TZ, NOW) == resolve_period("month", TZ, NOW)
+    assert resolve_period("yearly", TZ, NOW) == resolve_period("year", TZ, NOW)
+
+
+def test_resolve_period_explicit_from_to_override_preset() -> None:
+    from_ = datetime(2026, 7, 10, 5, 0, 0, tzinfo=UTC)
+    to = datetime(2026, 7, 12, 5, 0, 0, tzinfo=UTC)
+    bounds = resolve_period("day", TZ, NOW, from_=from_, to=to)
+    assert bounds.start == from_
+    assert bounds.stop == to
+    assert bounds.interval == timedelta(hours=1)
+
+
+def test_resolve_period_defaults_to_now_when_no_reference() -> None:
+    bounds = resolve_period("day", TZ)
+    assert bounds.stop > datetime.now(tz=UTC) - timedelta(seconds=5)
+    assert bounds.stop <= datetime.now(tz=UTC) + timedelta(seconds=5)
+
+
+def test_resolve_period_custom_requires_from_and_to() -> None:
+    with pytest.raises(ValueError):
+        resolve_period("custom", TZ, NOW)  # type: ignore[call-overload]
+    with pytest.raises(ValueError):
+        resolve_period("custom", TZ, NOW, from_=NOW)  # type: ignore[call-overload]
+
+
+def test_resolve_period_custom_uses_auto_interval() -> None:
+    from_ = datetime(2026, 7, 1, 5, 0, 0, tzinfo=UTC)
+    to = datetime(2026, 7, 16, 5, 0, 0, tzinfo=UTC)
+    bounds = resolve_period("custom", TZ, NOW, from_=from_, to=to)
+    assert isinstance(bounds, PeriodBounds)
+    assert bounds.start == from_
+    assert bounds.stop == to
+    assert bounds.interval < timedelta(days=1)  # auto_interval ajusta a ~500 puntos
+
+
+def test_resolve_period_rejects_inverted_range() -> None:
+    from_ = datetime(2026, 7, 16, 5, 0, 0, tzinfo=UTC)
+    to = datetime(2026, 7, 16, 4, 0, 0, tzinfo=UTC)
+    with pytest.raises(ValueError):
+        resolve_period("day", TZ, NOW, from_=from_, to=to)

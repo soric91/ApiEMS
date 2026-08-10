@@ -31,7 +31,7 @@ async def test_build_report_fixed_periods() -> None:
 
 async def test_build_report_custom_requires_bounds() -> None:
     repo = FakeInfluxRepository()
-    with pytest.raises(ValueError, match="requiere start y stop"):
+    with pytest.raises(ValueError, match="requiere from_ y to"):
         await build_report(repo, _settings(), "custom", None, _EMPTY_TARIFF)
 
 

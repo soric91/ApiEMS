@@ -9,12 +9,10 @@ solicitado, filtrando a muestras de importación.
 
 from datetime import datetime
 
-import polars as pl
-
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.analytics import BaseLoadResult
-from app.services.analytics.common import auto_interval, series_quantile
+from app.services.analytics.common import auto_interval, base_load_result, power_frames
 from app.services.influx.cache import cached_instant_series
 
 DEFAULT_PERCENTILE = 0.10
@@ -27,32 +25,9 @@ async def base_load(
     device_id: str | None,
     percentile: float = DEFAULT_PERCENTILE,
 ) -> BaseLoadResult:
-    empty = BaseLoadResult(
-        period_start=start,
-        period_end=stop,
-        device_id=device_id,
-        percentile=percentile,
-        base_load_w=None,
-    )
     every = auto_interval(start, stop)
     points = await cached_instant_series(
         repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
     )
-    if not points:
-        return empty
-
-    series = pl.Series([p.value for p in points])
-    importing = series.filter(series > 0)
-    if importing.is_empty():
-        return empty
-
-    value = series_quantile(importing, percentile)
-    if value is None:
-        return empty
-    return BaseLoadResult(
-        period_start=start,
-        period_end=stop,
-        device_id=device_id,
-        percentile=percentile,
-        base_load_w=round(value, 2),
-    )
+    _, importing = power_frames(points)
+    return base_load_result(start, stop, device_id, importing, percentile)

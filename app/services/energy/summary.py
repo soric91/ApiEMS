@@ -6,22 +6,19 @@ periodo y desglose.
 """
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.energy import EnergySummary, Period
 from app.schemas.influx import EnergyPoint
-from app.services.influx.cache import cached_energy_series, cached_energy_total
-from app.utils.period import (
-    month_starts_of_year,
-    start_of_day,
-    start_of_month,
-    start_of_week,
+from app.services.influx.cache import (
+    cached_closed_month_total,
+    cached_energy_series,
+    cached_energy_total,
 )
-
-_DAY_INTERVAL = timedelta(hours=1)
-_WEEK_MONTH_INTERVAL = timedelta(days=1)
+from app.services.periods import resolve_period
+from app.utils.period import month_starts_of_year
 
 
 async def period_summary(
@@ -36,27 +33,19 @@ async def period_summary(
     if period == "year":
         return await _year_summary(repo, counter, tz_name, device_id, now)
 
-    period_start, interval = _bounds(period, tz_name)
+    bounds = resolve_period(period, tz_name, now)
     series, total = await asyncio.gather(
-        cached_energy_series(repo, counter, period_start, now, interval, device_id),
-        cached_energy_total(repo, counter, period_start, now, device_id),
+        cached_energy_series(repo, counter, bounds.start, now, bounds.interval, device_id),
+        cached_energy_total(repo, counter, bounds.start, now, device_id),
     )
     return EnergySummary(
         period=period,
         device_id=device_id,
-        period_start=period_start,
+        period_start=bounds.start,
         period_end=now,
         total_kwh=total,
         series=series,
     )
-
-
-def _bounds(period: Period, tz_name: str) -> tuple[datetime, timedelta]:
-    if period == "day":
-        return start_of_day(tz_name), _DAY_INTERVAL
-    if period == "week":
-        return start_of_week(tz_name), _WEEK_MONTH_INTERVAL
-    return start_of_month(tz_name), _WEEK_MONTH_INTERVAL  # "month"
 
 
 async def _year_summary(
@@ -68,11 +57,19 @@ async def _year_summary(
 ) -> EnergySummary:
     """Desglose mensual: 12 totales exactos (spread por mes calendario) en
     lugar de aggregateWindow, porque los meses no tienen duración fija.
+    Los meses ya cerrados son inmutables: la suma va a la caché de largo
+    plazo (`cached_closed_month_total`) y no se vuelve a tocar InfluxDB en 7
+    días; solo el mes en curso se relee siempre.
     """
     starts = month_starts_of_year(tz_name, now)
     boundaries = list(zip(starts, [*starts[1:], now], strict=True))
     totals = await asyncio.gather(
-        *(cached_energy_total(repo, counter, start, end, device_id) for start, end in boundaries)
+        *(
+            cached_closed_month_total(repo, counter, start, end, device_id)
+            if end < now
+            else cached_energy_total(repo, counter, start, end, device_id)
+            for start, end in boundaries
+        )
     )
     series = [
         EnergyPoint(time=start, value=value)

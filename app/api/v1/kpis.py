@@ -1,6 +1,6 @@
 """KPIs: estadísticas instantáneas + energía por periodo (Polars)."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,7 +12,7 @@ from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.kpis import KpiSummary
 from app.services.kpis.summary import compute_kpis
-from app.utils.period import start_of_day
+from app.services.periods import resolve_period
 
 router = APIRouter(prefix="/kpis", tags=["KPIs"])
 
@@ -44,9 +44,10 @@ async def kpis(
     hoy), calculados con Polars sobre las series instantáneas; más consumo
     diario/semanal/mensual y exportación diaria/mensual.
     """
-    now = datetime.now(tz=UTC)
-    start = from_ or start_of_day(settings.TIMEZONE, now)
-    stop = to or now
-    if start >= stop:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "'from' debe ser anterior a 'to'")
-    return ApiResponse(data=await compute_kpis(repo, settings, start, stop, device_id))
+    try:
+        bounds = resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return ApiResponse(
+        data=await compute_kpis(repo, settings, bounds.start, bounds.stop, device_id)
+    )

@@ -1,21 +1,32 @@
 """Ensambla el payload de un reporte a partir de KPIs + analytics + energía."""
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from app.core.config import Settings
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
+from app.schemas.analytics import BaseLoadResult, LoadFactorResult, MaxDemandResult
+from app.schemas.influx import EnergyPoint
+from app.schemas.kpis import KpiSummary
 from app.schemas.reports import ReportData, ReportPeriod
-from app.schemas.tariff import CostPeriod, TariffConfig
-from app.services.analytics.base_load import base_load
-from app.services.analytics.common import auto_interval
-from app.services.analytics.demand import max_demand
-from app.services.analytics.load_factor import load_factor
-from app.services.influx.cache import cached_energy_series, cached_energy_total
+from app.schemas.tariff import CostBreakdown, CostPeriod, TariffConfig
+from app.services.analytics.base_load import DEFAULT_PERCENTILE
+from app.services.analytics.common import (
+    base_load_result,
+    load_factor_result,
+    max_demand_result,
+    power_frames,
+)
+from app.services.influx.cache import (
+    cached_energy_series,
+    cached_energy_total,
+    cached_instant_series,
+)
 from app.services.kpis.summary import compute_kpis
+from app.services.periods import PeriodBounds, resolve_period
 from app.services.tariff.cost import compute_cost_from_points
-from app.utils.period import start_of_day, start_of_month, start_of_week, start_of_year
 
 _REPORT_TO_COST_PERIOD: dict[ReportPeriod, CostPeriod] = {
     "daily": "day",
@@ -25,20 +36,89 @@ _REPORT_TO_COST_PERIOD: dict[ReportPeriod, CostPeriod] = {
     "custom": "custom",
 }
 
-_DAY_INTERVAL = timedelta(hours=1)
-_LONG_INTERVAL = timedelta(days=1)
+
+@dataclass(frozen=True)
+class ConsolidatedReport:
+    """Todo lo que `build_report` y sus reutilizadores necesitan, calculado
+    en UNA pasada sobre las series cacheadas (energía + un solo DataFrame de
+    potencia neta compartido por KPIs, demanda máxima, factor de carga y
+    carga base)."""
+
+    period_start: datetime
+    period_end: datetime
+    consumption_series: list[EnergyPoint]
+    export_series: list[EnergyPoint]
+    consumption_total: float
+    export_total: float
+    kpis: KpiSummary
+    max_demand: MaxDemandResult
+    load_factor: LoadFactorResult
+    base_load: BaseLoadResult
+    costs: CostBreakdown
 
 
-def _fixed_bounds(
-    report_type: ReportPeriod, tz_name: str, now: datetime
-) -> tuple[datetime, timedelta]:
-    if report_type == "daily":
-        return start_of_day(tz_name, now), _DAY_INTERVAL
-    if report_type == "weekly":
-        return start_of_week(tz_name, now), _LONG_INTERVAL
-    if report_type == "monthly":
-        return start_of_month(tz_name, now), _LONG_INTERVAL
-    return start_of_year(tz_name, now), _LONG_INTERVAL  # "yearly"
+async def consolidate(
+    repo: InfluxDataSource,
+    settings: Settings,
+    bounds: PeriodBounds,
+    device_id: str | None,
+    tariff: TariffConfig,
+    cost_period: CostPeriod,
+    percentile: float,
+) -> ConsolidatedReport:
+    """Una sola pasada sobre las series cacheadas produce energía+series,
+    KPIs, max_demand, load_factor, base_load y costos.
+
+    La serie de potencia neta (TotW) se lee UNA vez y se comparte: los tres
+    indicadores de carga salen del mismo `PolarsFrame` (ver
+    `analytics.common.power_frames`) y `compute_kpis` recibe los puntos ya
+    leídos en vez de volver a consultarlos.
+    """
+    start, stop, every = bounds.start, bounds.stop, bounds.interval
+
+    # Dos gathers: asyncio.gather solo tiene overloads tipados por posición
+    # hasta 5 awaitables; con más, el tipo de cada resultado colapsa a la
+    # unión de todos los tipos devueltos.
+    consumption_series, export_series, consumption_total, export_total = await asyncio.gather(
+        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, every, device_id),
+        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, every, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, device_id),
+    )
+
+    power_points = await cached_instant_series(
+        repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
+    )
+    _, importing = power_frames(power_points)
+    kpis = await compute_kpis(repo, settings, start, stop, device_id, power_points=power_points)
+    max_demand = max_demand_result(start, stop, device_id, importing)
+    load_factor = load_factor_result(start, stop, device_id, importing)
+    base_load = base_load_result(start, stop, device_id, importing, percentile)
+    costs = compute_cost_from_points(
+        tariff,
+        cost_period,
+        start,
+        stop,
+        device_id,
+        consumption_series,
+        export_series,
+        consumption_total,
+        export_total,
+    )
+
+    return ConsolidatedReport(
+        period_start=start,
+        period_end=stop,
+        consumption_series=consumption_series,
+        export_series=export_series,
+        consumption_total=consumption_total,
+        export_total=export_total,
+        kpis=kpis,
+        max_demand=max_demand,
+        load_factor=load_factor,
+        base_load=base_load,
+        costs=costs,
+    )
 
 
 async def build_report(
@@ -51,64 +131,31 @@ async def build_report(
     stop: datetime | None = None,
 ) -> ReportData:
     now = datetime.now(tz=UTC)
-    if report_type == "custom":
-        if start is None or stop is None:
-            raise ValueError("'custom' requiere start y stop")
-        period_start, period_end = start, stop
-        interval = auto_interval(period_start, period_end)
-    else:
-        period_start, interval = _fixed_bounds(report_type, settings.TIMEZONE, now)
-        period_end = now
-
-    # Dos gathers: asyncio.gather solo tiene overloads tipados por posición
-    # hasta 5 awaitables; con más, el tipo de cada resultado colapsa a la
-    # unión de todos los tipos devueltos.
-    consumption_series, export_series, consumption_total, export_total = await asyncio.gather(
-        cached_energy_series(
-            repo, Variable.POWER_ACTIVE_TOTAL_POS, period_start, period_end, interval, device_id
-        ),
-        cached_energy_series(
-            repo, Variable.POWER_ACTIVE_TOTAL_NEG, period_start, period_end, interval, device_id
-        ),
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_POS, period_start, period_end, device_id
-        ),
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_NEG, period_start, period_end, device_id
-        ),
-    )
-    kpis, demand, load_factor_result, base_load_result = await asyncio.gather(
-        compute_kpis(repo, settings, period_start, period_end, device_id),
-        max_demand(repo, period_start, period_end, device_id),
-        load_factor(repo, period_start, period_end, device_id),
-        base_load(repo, period_start, period_end, device_id),
-    )
-    costs = compute_cost_from_points(
+    bounds = resolve_period(report_type, settings.TIMEZONE, now, from_=start, to=stop)
+    report = await consolidate(
+        repo,
+        settings,
+        bounds,
+        device_id,
         tariff,
         _REPORT_TO_COST_PERIOD[report_type],
-        period_start,
-        period_end,
-        device_id,
-        consumption_series,
-        export_series,
-        consumption_total,
-        export_total,
+        percentile=DEFAULT_PERCENTILE,
     )
 
     return ReportData(
         report_type=report_type,
         device_id=device_id,
-        period_start=period_start,
-        period_end=period_end,
-        consumption_kwh=consumption_total,
-        export_kwh=export_total,
-        net_balance_kwh=round(consumption_total - export_total, 2),
-        consumption_series=consumption_series,
-        export_series=export_series,
-        kpis=kpis,
-        max_demand=demand,
-        load_factor=load_factor_result,
-        base_load=base_load_result,
-        costs=costs,
+        period_start=report.period_start,
+        period_end=report.period_end,
+        consumption_kwh=report.consumption_total,
+        export_kwh=report.export_total,
+        net_balance_kwh=round(report.consumption_total - report.export_total, 2),
+        consumption_series=report.consumption_series,
+        export_series=report.export_series,
+        kpis=report.kpis,
+        max_demand=report.max_demand,
+        load_factor=report.load_factor,
+        base_load=report.base_load,
+        costs=report.costs,
         generated_at=now,
     )

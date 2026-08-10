@@ -1,7 +1,7 @@
 """KPIs: estadísticas instantáneas (Polars) + energía por periodo."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime
 
 import polars as pl
 
@@ -29,11 +29,15 @@ async def compute_kpis(
     start: datetime,
     stop: datetime,
     device_id: str | None,
+    power_points: list[TimeSeriesPoint] | None = None,
 ) -> KpiSummary:
     every = auto_interval(start, stop)
 
+    if power_points is None:
+        power_points = await cached_instant_series(
+            repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
+        )
     (
-        power_points,
         voltage_a_points,
         voltage_b_points,
         voltage_c_points,
@@ -42,9 +46,6 @@ async def compute_kpis(
         current_c_points,
         pf_points,
     ) = await asyncio.gather(
-        cached_instant_series(
-            repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
-        ),
         cached_instant_series(repo, Variable.VOLTAGE_A, start, stop, every, device_id=device_id),
         cached_instant_series(repo, Variable.VOLTAGE_B, start, stop, every, device_id=device_id),
         cached_instant_series(repo, Variable.VOLTAGE_C, start, stop, every, device_id=device_id),
@@ -65,10 +66,12 @@ async def compute_kpis(
     current_avg, _, _ = _stats(current_a_points + current_b_points + current_c_points)
     pf_avg, _, _ = _stats(pf_points)
 
-    now = datetime.now(tz=UTC)
-    day_start = start_of_day(settings.TIMEZONE)
-    week_start = start_of_week(settings.TIMEZONE)
-    month_start = start_of_month(settings.TIMEZONE)
+    # Cuantías SIEMPRE dentro del rango pedido [start, stop]: los límites
+    # día/semana/mes se alinean a `stop` y se recortan a `start`, de modo que
+    # consultar KPIs de un rango pasado no arrastra consumo de "hoy".
+    day_start = max(start_of_day(settings.TIMEZONE, stop), start)
+    week_start = max(start_of_week(settings.TIMEZONE, stop), start)
+    month_start = max(start_of_month(settings.TIMEZONE, stop), start)
 
     (
         consumption_daily,
@@ -77,11 +80,11 @@ async def compute_kpis(
         export_daily,
         export_monthly,
     ) = await asyncio.gather(
-        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, day_start, now, device_id),
-        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, week_start, now, device_id),
-        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, month_start, now, device_id),
-        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, day_start, now, device_id),
-        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, month_start, now, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, day_start, stop, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, week_start, stop, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, month_start, stop, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, day_start, stop, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, month_start, stop, device_id),
     )
 
     return KpiSummary(

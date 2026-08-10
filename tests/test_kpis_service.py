@@ -18,6 +18,25 @@ def _settings() -> Settings:
     return Settings(_env_file=None, TIMEZONE="America/Bogota")  # pyright: ignore[reportCallIssue]
 
 
+class RecordingRepo(FakeInfluxRepository):
+    """Igual que el fake base pero además graba los rangos de energy_total."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.energy_ranges: list[tuple[datetime, datetime]] = []
+
+    async def energy_total(
+        self,
+        counter: Variable,
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+        devices: object | None = None,
+    ) -> float:
+        self.energy_ranges.append((start, stop))
+        return await super().energy_total(counter, start, stop, device_id, devices=devices)
+
+
 async def test_compute_kpis_combines_phases() -> None:
     repo = FakeInfluxRepository()
     repo.instant_series_by_variable = {
@@ -52,3 +71,34 @@ async def test_compute_kpis_none_when_no_samples() -> None:
     assert result.voltage_avg_v is None
     # La energía siempre tiene valor (el fake devuelve energy_total_value por defecto)
     assert result.consumption_daily_kwh == repo.energy_total_value
+
+
+async def test_compute_kpis_consumption_stays_within_requested_range() -> None:
+    """F2.3: en un rango pasado, los consumption_* se calculan dentro del
+    rango pedido, no contra la fecha real de 'hoy'."""
+    repo = RecordingRepo()
+    start = datetime(2026, 6, 16, 0, 0, tzinfo=UTC)
+    stop = datetime(2026, 6, 16, 12, 0, tzinfo=UTC)
+
+    result = await compute_kpis(repo, _settings(), start, stop, None)
+
+    # Las 5 consultas de energía ocurren dentro del rango pedido: ningún
+    # tramo toca 'hoy' (2026-07) ni se sale de [start, stop].
+    assert repo.energy_ranges
+    for range_start, range_stop in repo.energy_ranges:
+        assert range_start >= start
+        assert range_stop <= stop
+
+    # Dos tramos distintos, ambos dentro del rango:
+    #  - día (y export diaria) = medianoche local del día de `stop` (05:00 UTC en Bogotá);
+    #  - semana/mes (y export mensual) = recortados al inicio del rango
+    #    (jueves a mitad de mes → el tramo solo cubre lo pedido).
+    assert set(repo.energy_ranges) == {
+        (datetime(2026, 6, 16, 5, 0, tzinfo=UTC), stop),
+        (start, stop),
+    }
+
+    # Los valores de consumo/export salen del fake (iguales al default).
+    assert result.consumption_daily_kwh == repo.energy_total_value
+    assert result.consumption_weekly_kwh == repo.energy_total_value
+    assert result.consumption_monthly_kwh == repo.energy_total_value

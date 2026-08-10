@@ -10,22 +10,34 @@ from app.core.config import Settings, get_settings
 from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.dependencies.realtime import get_realtime_state
+from app.dependencies.tariff import get_tariff_config
 from app.models.variables import Variable
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
-from app.schemas.dashboard import DashboardCard, DashboardData, DashboardStatus
+from app.schemas.dashboard import (
+    DashboardCard,
+    DashboardData,
+    DashboardStatus,
+    DashboardSummary,
+)
 from app.schemas.realtime import DeviceSnapshot
-from app.services.influx.cache import cached_energy_total
+from app.schemas.tariff import CostBreakdown, TariffConfig
+from app.services.analytics.base_load import DEFAULT_PERCENTILE
+from app.services.analytics.common import auto_interval
+from app.services.influx.cache import cached_energy_series, cached_energy_total
 from app.services.influx.client import InfluxService
 from app.services.mqtt.client import MQTTService
+from app.services.periods import resolve_period
 from app.services.realtime.state import RealtimeState
-from app.utils.period import start_of_day, start_of_month
+from app.services.reports.builder import consolidate
+from app.services.tariff.cost import compute_cost_from_points
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 StateDep = Annotated[RealtimeState, Depends(get_realtime_state)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+TariffDep = Annotated[TariffConfig, Depends(get_tariff_config)]
 
 STALE_AFTER_SECONDS = 90
 
@@ -55,8 +67,8 @@ async def _build_dashboard(
     device_id: str | None,
 ) -> DashboardData:
     snapshot = _pick_device(state, device_id)
-    day_start = start_of_day(settings.TIMEZONE)
-    month_start = start_of_month(settings.TIMEZONE)
+    day_start = resolve_period("day", settings.TIMEZONE).start
+    month_start = resolve_period("month", settings.TIMEZONE).start
     now = datetime.now(tz=UTC)
 
     consumption_today, consumption_month, export_today, export_month = await asyncio.gather(
@@ -187,5 +199,89 @@ async def dashboard_status(
             devices_online=len(online),
             devices_total=len(snapshots),
             last_message_at=last_message_at,
+        )
+    )
+
+
+async def _costs_for_range(
+    repo: ScopedInfluxRepository,
+    tariff: TariffConfig,
+    device_id: str,
+    start: datetime,
+    stop: datetime,
+) -> CostBreakdown:
+    """CostBreakdown de un rango, reutilizando SOLO las series cacheadas."""
+    every = auto_interval(start, stop)
+    consumption_series, export_series, consumption_total, export_total = await asyncio.gather(
+        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, every, device_id),
+        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, every, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, device_id),
+        cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, device_id),
+    )
+    return compute_cost_from_points(
+        tariff,
+        "month",
+        start,
+        stop,
+        device_id,
+        consumption_series,
+        export_series,
+        consumption_total,
+        export_total,
+    )
+
+
+@router.get(
+    "/summary",
+    summary="Resumen consolidado del panel",
+    response_model=ApiResponse[DashboardSummary],
+    responses={
+        404: {"description": "device_id sin datos en memoria"},
+        503: {"description": "Sin datos en tiempo real todavía"},
+    },
+)
+async def dashboard_summary(
+    repo: RepoDep,
+    state: StateDep,
+    settings: SettingsDep,
+    tariff: TariffDep,
+    fleet: CurrentFleet,
+    device_id: str | None = None,
+) -> ApiResponse[DashboardSummary]:
+    """Todo lo que pinta el dashboard en una sola llamada: snapshots en vivo
+    (RAM) + energía de hoy y del mes + costos día/mes + KPIs del día.
+
+    Reutiliza `consolidate()` (día) y `compute_cost_from_points` (mes) —
+    todas las lecturas pasan por las envolturas cacheadas, así que un panel
+    que acaba de pedir /dashboard y /kpis no vuelve a golpear InfluxDB.
+    """
+    snapshot = _pick_device(state, device_id)
+    did = snapshot.device_id
+    day_bounds = resolve_period("day", settings.TIMEZONE)
+    month_bounds = resolve_period("month", settings.TIMEZONE)
+
+    day, costs_month = await asyncio.gather(
+        consolidate(repo, settings, day_bounds, did, tariff, "day", DEFAULT_PERCENTILE),
+        _costs_for_range(repo, tariff, did, month_bounds.start, month_bounds.stop),
+    )
+
+    data = snapshot.data
+    return ApiResponse(
+        data=DashboardSummary(
+            device_id=did,
+            last_update=snapshot.timestamp,
+            power_active_total_w=data.get(Variable.POWER_ACTIVE_INST_TOTAL.value, 0.0),
+            voltage_a=data.get(Variable.VOLTAGE_A.value, 0.0),
+            voltage_b=data.get(Variable.VOLTAGE_B.value, 0.0),
+            current_a=data.get(Variable.CURRENT_A.value, 0.0),
+            current_b=data.get(Variable.CURRENT_B.value, 0.0),
+            power_factor=data.get(Variable.FACTOR_POTENCIA_TOTAL.value, 0.0),
+            consumption_today_kwh=day.consumption_total,
+            consumption_month_kwh=costs_month.consumption_kwh,
+            export_today_kwh=day.export_total,
+            export_month_kwh=costs_month.export_kwh,
+            costs_day=day.costs,
+            costs_month=costs_month,
+            kpis=day.kpis,
         )
     )

@@ -4,6 +4,13 @@ from datetime import datetime, timedelta
 
 import polars as pl
 
+from app.schemas.analytics import (
+    BaseLoadResult,
+    LoadFactorResult,
+    MaxDemandResult,
+)
+from app.schemas.influx import TimeSeriesPoint
+
 _TARGET_POINTS = 500
 _MIN_INTERVAL = timedelta(minutes=1)
 
@@ -35,3 +42,101 @@ def series_quantile(series: pl.Series, quantile: float) -> float | None:
         quantile, interpolation="linear"
     )
     return None if value is None else float(value)  # pyright: ignore[reportArgumentType]
+
+
+def power_frames(points: list[TimeSeriesPoint]) -> tuple[pl.DataFrame, pl.DataFrame | None]:
+    """Dos marcos desde los puntos de potencia neta: el de TODAS las muestras
+    (para p. ej. el promedio del KPIs) y el de solo importación (> 0, el que
+    usan demanda máxima, factor de carga y carga base).
+
+    El compartirlos acá es lo que permite que un reporte construya el
+    DataFrame UNA sola vez y derive los tres indicadores de carga de ahí en
+    lugar de releer la misma serie (ver `ReportBuilder.consolidate`).
+    """
+    if not points:
+        return pl.DataFrame(), None
+    full = pl.DataFrame({"time": [p.time for p in points], "value": [p.value for p in points]})
+    importing: pl.DataFrame = full.filter(pl.col("value") > 0)  # pyright: ignore[reportUnknownMemberType]
+    return full, importing
+
+
+def _value_series(df: pl.DataFrame) -> pl.Series:
+    return df["value"]  # pyright: ignore[reportUnknownMemberType]
+
+
+def max_demand_result(
+    start: datetime,
+    stop: datetime,
+    device_id: str | None,
+    importing: pl.DataFrame | None,
+) -> MaxDemandResult:
+    empty = MaxDemandResult(
+        period_start=start, period_end=stop, device_id=device_id, peak_power_w=None, peak_at=None
+    )
+    if importing is None or importing.is_empty():
+        return empty
+    sorted_df: pl.DataFrame = importing.sort("value", descending=True)  # pyright: ignore[reportUnknownMemberType]
+    return MaxDemandResult(
+        period_start=start,
+        period_end=stop,
+        device_id=device_id,
+        peak_power_w=round(float(sorted_df["value"][0]), 2),  # pyright: ignore[reportIndexIssue]
+        peak_at=sorted_df["time"][0],
+    )
+
+
+def load_factor_result(
+    start: datetime,
+    stop: datetime,
+    device_id: str | None,
+    importing: pl.DataFrame | None,
+) -> LoadFactorResult:
+    empty = LoadFactorResult(
+        period_start=start,
+        period_end=stop,
+        device_id=device_id,
+        average_import_w=None,
+        peak_import_w=None,
+        load_factor=None,
+    )
+    if importing is None or importing.is_empty():
+        return empty
+    values = _value_series(importing)
+    avg = series_mean(values)
+    peak = series_max(values)
+    return LoadFactorResult(
+        period_start=start,
+        period_end=stop,
+        device_id=device_id,
+        average_import_w=round(avg, 2),
+        peak_import_w=round(peak, 2),
+        load_factor=round(avg / peak, 4) if peak > 0 else None,
+    )
+
+
+def base_load_result(
+    start: datetime,
+    stop: datetime,
+    device_id: str | None,
+    importing: pl.DataFrame | None,
+    percentile: float,
+) -> BaseLoadResult:
+    empty = BaseLoadResult(
+        period_start=start,
+        period_end=stop,
+        device_id=device_id,
+        percentile=percentile,
+        base_load_w=None,
+    )
+    if importing is None or importing.is_empty():
+        return empty
+    value = series_quantile(_value_series(importing), percentile)
+    if value is None:
+        return empty
+    return BaseLoadResult(
+        period_start=start,
+        period_end=stop,
+        device_id=device_id,
+        percentile=percentile,
+        base_load_w=round(value, 2),
+    )

@@ -15,6 +15,8 @@ from app.schemas.influx import EnergyPoint, TimeSeriesPoint
 
 ENERGY_TTL = 20
 SERIES_TTL = 30
+# Un mes calendario ya finalizado es inmutable; su agregado puede vivir días.
+CLOSED_MONTH_TTL = 7 * 24 * 3600
 
 # Qué variables tienen datos cambia cuando alguien da de alta un medidor en el
 # CRM, no entre una carga del panel y la siguiente. Y averiguarlo es la consulta
@@ -36,6 +38,24 @@ async def cached_energy_total(
     stop: datetime,
     device_id: str | None = None,
 ) -> float:
+    return await repo.energy_total(counter, start, stop, device_id)
+
+
+@cached(ttl_seconds=CLOSED_MONTH_TTL)
+async def cached_closed_month_total(
+    repo: InfluxDataSource,
+    counter: Variable,
+    start: datetime,
+    stop: datetime,
+    device_id: str | None = None,
+) -> float:
+    """Energía de UN mes calendario ya cerrado, cacheada 7 días.
+
+    Solo para meses finalizados — un mes en curso cambia minuto a minuto y no
+    debe pasar por acá (el llamador decide la frontera). La clave incluye la
+    identidad de la empresa vía `repo.cache_identity` y el rango del mes, así
+    que cada cliente guarda sus propios agregados y un mes respeta la suya.
+    """
     return await repo.energy_total(counter, start, stop, device_id)
 
 

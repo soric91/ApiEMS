@@ -1,0 +1,66 @@
+{
+  "base_load": {
+    "base_load_w": null,
+    "device_id": null,
+    "percentile": 0.1,
+    "period_end": "<fecha>",
+    "period_start": "<fecha>"
+  },
+  "consumption_kwh": 5.5,
+  "consumption_series": [],
+  "costs": {
+    "consumption_cost_cop": 0.0,
+    "consumption_kwh": 5.5,
+    "device_id": null,
+    "export_credit_cop": 0.0,
+    "export_kwh": 5.5,
+    "months_used": [],
+    "net_cost_cop": 0.0,
+    "period": "day",
+    "period_end": "<fecha>",
+    "period_start": "<fecha>",
+    "series": [],
+    "stale_months": [
+      "<mes>"
+    ]
+  },
+  "device_id": null,
+  "export_kwh": 5.5,
+  "export_series": [],
+  "kpis": {
+    "consumption_daily_kwh": 5.5,
+    "consumption_monthly_kwh": 5.5,
+    "consumption_weekly_kwh": 5.5,
+    "current_avg_a": null,
+    "device_id": null,
+    "export_daily_kwh": 5.5,
+    "export_monthly_kwh": 5.5,
+    "period_end": "<fecha>",
+    "period_start": "<fecha>",
+    "power_avg_w": null,
+    "power_factor_avg": null,
+    "power_max_w": null,
+    "voltage_avg_v": null,
+    "voltage_max_v": null,
+    "voltage_min_v": null
+  },
+  "load_factor": {
+    "average_import_w": null,
+    "device_id": null,
+    "load_factor": null,
+    "peak_import_w": null,
+    "period_end": "<fecha>",
+    "period_start": "<fecha>"
+  },
+  "max_demand": {
+    "device_id": null,
+    "peak_at": null,
+    "peak_power_w": null,
+    "period_end": "<fecha>",
+    "period_start": "<fecha>"
+  },
+  "net_balance_kwh": 0.0,
+  "period_end": "<fecha>",
+  "period_start": "<fecha>",
+  "report_type": "daily"
+}

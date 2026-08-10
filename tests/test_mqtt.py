@@ -101,3 +101,20 @@ async def test_invalid_payload_ignored() -> None:
     await service._on_message(FakeMessage(b'{"garbage": true}'))  # pyright: ignore[reportArgumentType, reportPrivateUsage]
     await service._on_message(FakeMessage(b"not json"))  # pyright: ignore[reportArgumentType, reportPrivateUsage]
     assert calls == []
+
+
+async def test_non_finite_values_dropped_variable_by_variable() -> None:
+    """Un valor NaN o Inf en una variable no puede salir por el WebSocket:
+    JSON no los representa (orjson escribe null) y el chart del panel revienta.
+    Se filtra la variable puntual sin tirar el resto de la lectura."""
+    calls: list[DeviceReading] = []
+    service = make_service(calls)
+    payload = REAL_PAYLOAD.replace(
+        b'"TotW": -442.2',
+        b'"TotW": 1e999',  # -> inf, pydantic lo acepta
+    )
+    await service._on_message(FakeMessage(payload))  # pyright: ignore[reportArgumentType, reportPrivateUsage]
+    assert len(calls) == 1
+    assert "TotW" not in calls[0].data
+    assert calls[0].data["PhV_phsA"] == 120.4
+    assert calls[0].data["TotWh_import"] == 3083.27

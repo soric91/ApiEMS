@@ -7,6 +7,7 @@ memoria, WebSocket) se inyecta como callback en fases posteriores.
 
 import asyncio
 import contextlib
+import math
 import re
 from collections.abc import Awaitable, Callable
 
@@ -110,9 +111,7 @@ class MQTTService:
                     # 8883, y el broker la corta: TLS no se negocia sobre MQTT,
                     # se establece antes. TLSParameters() por defecto usa los
                     # certificados raíz del sistema y verifica el hostname.
-                    tls_params=(
-                        aiomqtt.TLSParameters() if settings.MQTT_USE_TLS else None
-                    ),
+                    tls_params=(aiomqtt.TLSParameters() if settings.MQTT_USE_TLS else None),
                 ) as client:
                     wildcard_topic = f"{settings.MQTT_TOPIC.rstrip('/')}/+/+"
                     await client.subscribe(wildcard_topic, qos=settings.MQTT_QOS)
@@ -171,5 +170,12 @@ class MQTTService:
                     topic_equipment_uuid=equipment_uuid,
                     payload_identify_device=reading.identify_device,
                 )
+
+        # Un medidor reporta NaN/Inf cuando no puede leer un registro (p. ej.
+        # Modbus sin respuesta). JSON no los representa —orjson los escribe
+        # como null— y la librería del chart del panel revienta al recibir un
+        # `value: null`. Se filtra la variable puntual, dejando las demás
+        # lecturas del mismo tick intactas.
+        reading.data = {name: value for name, value in reading.data.items() if math.isfinite(value)}
 
         await self._handler(reading)

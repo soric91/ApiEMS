@@ -92,3 +92,32 @@ async def test_a_device_of_this_client_goes_through() -> None:
     # concreto: es la diferencia entre "confío en la validación" y "además lo
     # acoto en la propia consulta".
     assert inner.calls == [("energy_total", Variable.POWER_ACTIVE_TOTAL_POS.value, MIO, (MIO,))]
+
+
+async def test_energy_records_alien_device_fails_before_streaming() -> None:
+    """El 404 del CSV se rechaza ANTES de volcar la primera fila: el `_check`
+    corre al construir el generador, no dentro del stream."""
+    inner = FakeInfluxRepository()
+    repo = get_influx_repository(_fleet(), cast(InfluxRepository, inner))
+    start = datetime(2026, 4, 20, tzinfo=UTC)
+
+    with pytest.raises(HTTPException) as raised:
+        await repo.energy_records(
+            (Variable.POWER_REACTIVE_QUAD1,), start, start + timedelta(days=1), AJENO
+        )
+
+    assert raised.value.status_code == 404
+    assert inner.calls == []
+
+
+async def test_energy_records_scope_travels_with_query() -> None:
+    inner = FakeInfluxRepository()
+    repo = get_influx_repository(_fleet(), cast(InfluxRepository, inner))
+    start = datetime(2026, 4, 20, tzinfo=UTC)
+
+    records = await repo.energy_records(
+        (Variable.POWER_REACTIVE_QUAD1,), start, start + timedelta(days=1), MIO
+    )
+
+    assert inner.calls == [("energy_records", ("Q1Eq",), MIO, (MIO,))]
+    assert [row async for row in records] == []

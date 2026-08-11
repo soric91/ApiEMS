@@ -4,7 +4,7 @@ Cubre el repartido de los contadores Q1Eq..Q4Eq (IEC 60375): Q1/Q2 importada
 de la red, Q3/Q4 exportada, su balance y la tendencia por ventana.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -14,6 +14,7 @@ from tests.fakes import FakeInfluxRepository
 
 _FROM = datetime(2026, 7, 16, 0, 0, tzinfo=UTC)
 _TO = datetime(2026, 7, 17, 0, 0, tzinfo=UTC)
+_ONE_SEC = timedelta(seconds=1)
 
 Q1 = Variable.POWER_REACTIVE_QUAD1
 Q2 = Variable.POWER_REACTIVE_QUAD2
@@ -25,6 +26,10 @@ def test_reactive_quadrants_requires_auth(client: TestClient) -> None:
     assert client.get("/api/v1/analytics/reactive-quadrants").status_code == 401
 
 
+def test_reactive_quadrants_csv_requires_auth(client: TestClient) -> None:
+    assert client.get("/api/v1/analytics/reactive-quadrants/csv").status_code == 401
+
+
 def test_reactive_quadrants_wrong_range_400(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
@@ -34,6 +39,59 @@ def test_reactive_quadrants_wrong_range_400(
         headers=auth_headers,
     )
     assert response.status_code == 400
+
+
+def test_reactive_quadrants_csv_wrong_range_400(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get(
+        "/api/v1/analytics/reactive-quadrants/csv",
+        params={"from": _TO.isoformat(), "to": _FROM.isoformat()},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+
+
+def test_reactive_quadrants_csv_streams_every_raw_point(
+    client: TestClient,
+    fake_influx_repo: FakeInfluxRepository,
+    auth_headers: dict[str, str],
+) -> None:
+    """Una fila por lectura real (1 Hz), con los cuatro cuadrantes mezclados y
+    sin agregación de ninguna clase — es el cuerpo de "todos los puntos"."""
+    t = datetime(2026, 7, 16, 10, 0, tzinfo=UTC)
+    fake_influx_repo.energy_records_points_by_counter = {
+        Q1: [EnergyPoint(time=t, value=12.506), EnergyPoint(time=t + _ONE_SEC, value=13.0)],
+        Q2: [EnergyPoint(time=t, value=3.0)],
+        Q3: [],
+        Q4: [EnergyPoint(time=t + _ONE_SEC, value=0.4)],
+    }
+
+    response = client.get(
+        "/api/v1/analytics/reactive-quadrants/csv",
+        params={"from": _FROM.isoformat(), "to": _TO.isoformat(), "device_id": "11"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    # El stream agrupa por contador (orden natural de las tablas de Flux).
+    assert response.text.splitlines() == [
+        "fecha_hora_utc,identify_device,campo,valor_kvarh",
+        "2026-07-16T10:00:00+00:00,bf6a469f-4c2a-4402-9438-49a491ad2238,Q1Eq,12.51",
+        "2026-07-16T10:00:01+00:00,bf6a469f-4c2a-4402-9438-49a491ad2238,Q1Eq,13.00",
+        "2026-07-16T10:00:00+00:00,bf6a469f-4c2a-4402-9438-49a491ad2238,Q2Eq,3.00",
+        "2026-07-16T10:00:01+00:00,bf6a469f-4c2a-4402-9438-49a491ad2238,Q4Eq,0.40",
+    ]
+    # El volcado pidió los cuatro cuadrantes del rango. El recorte por flota
+    # no viaja en esta llamada: en HTTP el repo ya viene acotado por el
+    # envoltorio (su recorte se prueba en test_dependencies_influx.py).
+    assert fake_influx_repo.calls[-1] == (
+        "energy_records",
+        ("Q1Eq", "Q2Eq", "Q3Eq", "Q4Eq"),
+        "11",
+        (),
+    )
 
 
 def test_reactive_quadrants_full_payload(

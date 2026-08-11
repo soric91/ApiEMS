@@ -3,7 +3,12 @@ from typing import Any
 
 import pytest
 
-from app.models.variables import Aggregation, InvalidAggregationError, Variable
+from app.models.variables import (
+    REACTIVE_QUADRANTS,
+    Aggregation,
+    InvalidAggregationError,
+    Variable,
+)
 from app.repositories.influx import InfluxRepository
 from app.utils.period import flux_window_offset
 
@@ -37,6 +42,20 @@ class FakeQueryApi:
         self.flux = flux
         self.params = params
         return self.tables
+
+    async def query_stream(self, flux: str, params: dict[str, Any] | None = None) -> Any:
+        # Igual que el cliente real: devolver un AsyncGenerator ya construido.
+        self.flux = flux
+        self.params = params
+        return self._stream()
+
+    def _stream(self) -> Any:
+        async def _iter() -> Any:
+            for table in self.tables:
+                for record in table.records:
+                    yield record
+
+        return _iter()
 
 
 @pytest.fixture
@@ -225,6 +244,87 @@ async def test_energy_series_offset_matches_configured_timezone(fake_api: FakeQu
 
 async def test_offset_is_zero_for_utc() -> None:
     assert flux_window_offset("UTC", START) == timedelta(0)
+
+
+async def test_energy_records_streams_raw_points(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """energy_records vuelca TODO lo que reportó el contador, sin agregar nada:
+    el volcado a CSV se hace fila por fila (streaming), no en una lista gigante."""
+    fake_api.tables = [
+        FakeTable(
+            [
+                FakeRecord(
+                    {
+                        "_time": START,
+                        "_field": "Q1Eq",
+                        "_value": 12.506,
+                        "identify_device": "d-01",
+                    }
+                ),
+                FakeRecord(
+                    {
+                        "_time": START + timedelta(seconds=1),
+                        "_field": "Q2Eq",
+                        "_value": 3.0,
+                        "identify_device": "d-01",
+                    }
+                ),
+            ]
+        )
+    ]
+
+    records = await repo.energy_records(REACTIVE_QUADRANTS, START, STOP, device_id="11")
+    out = [(time, device, field, value) async for time, device, field, value in records]
+
+    assert out == [
+        (START, "d-01", "Q1Eq", 12.51),  # redondeado a 2 decimales, como el resto
+        (START + timedelta(seconds=1), "d-01", "Q2Eq", 3.0),
+    ]
+    assert fake_api.flux is not None
+    assert "contains(value: r._field, set: _fields)" in fake_api.flux
+    assert "aggregateWindow" not in fake_api.flux
+    assert "spread()" not in fake_api.flux
+    assert fake_api.params is not None
+    assert fake_api.params["_fields"] == ["Q1Eq", "Q2Eq", "Q3Eq", "Q4Eq"]
+    assert fake_api.params["_device_id"] == "11"
+
+
+async def test_energy_records_scopes_by_device_set(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    await repo.energy_records(REACTIVE_QUADRANTS, START, STOP, devices=("d-1", "d-2"))
+    assert fake_api.flux is not None
+    assert "contains(value: r.identify_device, set: _devices)" in fake_api.flux
+    assert fake_api.params is not None
+    assert fake_api.params["_devices"] == ["d-1", "d-2"]
+
+
+async def test_energy_records_rejects_instant_variable(repo: InfluxRepository) -> None:
+    with pytest.raises(ValueError, match="no es un contador"):
+        await repo.energy_records((Variable.VOLTAGE_A,), START, STOP)
+
+
+async def test_energy_records_skips_records_without_value(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """El stream puede traer filas con _value nulo (p. ej. cierres de tabla);
+    no son un punto y no deben aparecer en el CSV."""
+    fake_api.tables = [
+        FakeTable(
+            [
+                FakeRecord({"_time": START, "_field": "Q1Eq", "_value": None}),
+                FakeRecord(
+                    {"_time": START + timedelta(seconds=1), "_field": "Q1Eq", "_value": 1.5}
+                ),
+            ]
+        )
+    ]
+
+    records = await repo.energy_records((Variable.POWER_REACTIVE_QUAD1,), START, STOP)
+    out = [(t, d, f, v) async for t, d, f, v in records]
+
+    assert out == [(START + timedelta(seconds=1), "", "Q1Eq", 1.5)]
 
 
 async def test_offset_is_noop_for_divisor_windows() -> None:

@@ -6,7 +6,7 @@ fragmentos interpolados en el template provienen de enums internos
 (`Aggregation`) o de flags booleanos — nunca de strings del usuario.
 """
 
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
@@ -22,6 +22,10 @@ from app.schemas.influx import EnergyPoint, TimeSeriesPoint
 from app.utils.period import flux_window_offset
 
 MEASUREMENT = "Modbus_Data"
+
+# Un punto crudo de un contador, tal como lo reportó el medidor:
+# (time, identify_device, campo, valor). Se consume en streaming, de a uno.
+EnergyRecord = tuple[datetime, str, str, float]
 
 
 class InfluxDataSource(Protocol):
@@ -83,6 +87,14 @@ class InfluxDataSource(Protocol):
         every: timedelta,
         device_id: str | None = None,
     ) -> dict[Variable, list[EnergyPoint]]: ...
+
+    async def energy_records(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+    ) -> AsyncGenerator[EnergyRecord]: ...
 
 
 _BASE_FILTER = """
@@ -371,6 +383,71 @@ class InfluxRepository:
             points = [EnergyPoint(time=t, value=v) for t, v in self._records([table]) if t > start]
             result[Variable(field)] = points
         return result
+
+    async def energy_records(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> AsyncGenerator[EnergyRecord]:
+        """Puntos crudos (1 Hz) de VARIOS contadores, en streaming.
+
+        Sin agregación de ninguna clase: devuelve todo lo que reportó el
+        medidor en el rango, de a un punto por vez. Es la salida del volcado a
+        CSV —a 1 Hz y con los cuatro cuadrantes son ~600 mil filas por día— así
+        que el llamador los consume con `async for` a medida que llegan, sin
+        aguantar la lista entera en memoria (ni aquí ni en el cliente).
+
+        Devuelve (time, identify_device, campo, valor) por punto. El rango no
+        se extiende ni se reagrupa: es exactamente lo que hay en la bucket.
+        """
+        for c in counters:
+            if not is_cumulative(c):
+                raise ValueError(f"'{c}' no es un contador acumulativo")
+
+        flux = (
+            "from(bucket: _bucket)\n"
+            "  |> range(start: _start, stop: _stop)\n"
+            "  |> filter(fn: (r) => r._measurement == _measurement)\n"
+            "  |> filter(fn: (r) => contains(value: r._field, set: _fields))\n"
+            + _device_filter(device_id, devices)
+        )
+        params: dict[str, Any] = {
+            "_bucket": self._bucket,
+            "_measurement": MEASUREMENT,
+            "_fields": [c.value for c in counters],
+            "_start": start,
+            "_stop": stop,
+        }
+        if device_id is not None:
+            params["_device_id"] = device_id
+        elif devices is not None:
+            params["_devices"] = list(devices)
+
+        stream = await self._query_api.query_stream(flux, params=params)  # pyright: ignore[reportUnknownMemberType]
+        return self._stream_records(stream)
+
+    def _stream_records(self, stream: Any) -> AsyncGenerator[EnergyRecord]:
+        """Aplana el AsyncGenerator de FluxRecord del cliente a tuplas crudas."""
+
+        async def _iter() -> AsyncGenerator[EnergyRecord]:
+            async for record in stream:
+                values = record.values
+                time = values.get("_time")
+                value = values.get("_value")
+                field = values.get("_field")
+                if time is None or value is None or field is None:
+                    continue
+                yield (
+                    time,
+                    str(values.get("identify_device", "")),
+                    str(field),
+                    round(float(value), 2),
+                )
+
+        return _iter()
 
     # ------------------------------------------------------------------
     # Dispositivos

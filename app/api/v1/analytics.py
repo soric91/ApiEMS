@@ -7,16 +7,19 @@ esos indicadores no están definidos.
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.core.config import Settings, get_settings
 from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.dependencies.tariff import get_tariff_config
-from app.models.variables import Variable
+from app.models.variables import REACTIVE_QUADRANTS, Variable
+from app.repositories.influx import EnergyRecord
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.analytics import (
     AnalyticsOverview,
@@ -246,6 +249,45 @@ async def analytics_reactive_quadrants(
     tendencia por ventana. Por defecto: hoy."""
     bounds = _resolve_range(settings, from_, to)
     return ApiResponse(data=await reactive_quadrants(repo, bounds.start, bounds.stop, device_id))
+
+
+@router.get(
+    "/reactive-quadrants/csv",
+    summary="Datos crudos (1 Hz) de los cuadrantes reactivos, en CSV",
+)
+async def analytics_reactive_quadrants_csv(
+    repo: RepoDep,
+    settings: SettingsDep,
+    fleet: CurrentFleet,
+    from_: FromQuery = None,
+    to: ToQuery = None,
+    device_id: str | None = None,
+) -> StreamingResponse:
+    """Todos los puntos reales de Q1..Q4 del rango, una fila por lectura.
+
+    El cuerpo es un generador async que FastAPI consume pasa a pasa: el CSV se
+    arma del Influx hacia la descarga, sin listas intermedias con cientos de
+    miles de puntos. La columna `campo` lleva el nombre IEC del contador
+    (Q1Eq..Q4Eq) y `fecha_hora_utc` la marca de tiempo con su offset, para que
+    una hoja de cálculo no reinterprete el huso."""
+    bounds = _resolve_range(settings, from_, to)
+    records = await repo.energy_records(REACTIVE_QUADRANTS, bounds.start, bounds.stop, device_id)
+    filename = f"reactiva_{bounds.start:%Y%m%dT%H%M}_{bounds.stop:%Y%m%dT%H%M}.csv"
+    return StreamingResponse(
+        _stream_reactive_csv(records),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _stream_reactive_csv(
+    records: AsyncGenerator[EnergyRecord],
+) -> AsyncGenerator[str]:
+    """Vuelca cada punto crudo a una fila CSV, sin guardar nada en memoria."""
+
+    yield "fecha_hora_utc,identify_device,campo,valor_kvarh\r\n"
+    async for time, device_id, field, value in records:
+        yield f"{time.isoformat()},{device_id},{field},{value:.2f}\r\n"
 
 
 @router.get(

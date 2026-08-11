@@ -10,13 +10,13 @@ Un `device_id` ajeno responde 404 en vez de 403: confirmar que existe ya sería
 contar algo de otro cliente.
 """
 
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
 
 from app.models.variables import Aggregation, Variable
-from app.repositories.influx import InfluxRepository
+from app.repositories.influx import EnergyRecord, InfluxRepository
 from app.schemas.influx import EnergyPoint, TimeSeriesPoint
 
 
@@ -147,6 +147,21 @@ class ScopedInfluxRepository:
         return await self._inner.energy_series_by_counter(
             counters, start, stop, every, self._check(device_id), devices=self._scope
         )
+
+    async def energy_records(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+    ) -> AsyncGenerator[EnergyRecord]:
+        """Streaming de puntos crudos, ya acotado a la flota.
+
+        El `_check` corre ANTES de devolver el generador: un `device_id` ajeno
+        da 404 sin haber empezado a volcar CSV.
+        """
+        checked = self._check(device_id)
+        return await self._inner.energy_records(counters, start, stop, checked, devices=self._scope)
 
     async def field_keys(self, lookback: timedelta = timedelta(days=30)) -> list[str]:
         """Los campos con datos, ya acotados a los equipos de este cliente."""

@@ -26,6 +26,9 @@ class FakeInfluxRepository:
         self.energy_series_points_by_counter: dict[Variable, list[EnergyPoint]] = {}
         self.instant_series_by_variable: dict[Variable, list[TimeSeriesPoint]] = {}
         self.energy_total_by_counter: dict[Variable, float] = {}
+        # Puntos crudos por contador para el volcado CSV (energy_records).
+        self.energy_records_points_by_counter: dict[Variable, list[EnergyPoint]] = {}
+        self.energy_records_device_id: str = "bf6a469f-4c2a-4402-9438-49a491ad2238"
         # Qué campos "existen" en Influx, y con qué equipos se preguntó.
         self.field_keys_result: list[str] = []
         self.field_keys_lookback: timedelta | None = None
@@ -98,6 +101,32 @@ class FakeInfluxRepository:
             c: self.energy_series_points_by_counter.get(c, self.energy_series_points)
             for c in counters
         }
+
+    async def energy_records(
+        self,
+        counters: Sequence[Variable],
+        start: datetime,
+        stop: datetime,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> Any:
+        self.calls.append(
+            (
+                "energy_records",
+                tuple(c.value for c in counters),
+                str(device_id),
+                tuple(devices or ()),
+            )
+        )
+        return self._iter_energy_records(counters)
+
+    def _iter_energy_records(self, counters: Sequence[Variable]) -> Any:
+        async def _iter() -> Any:
+            for counter in counters:
+                for point in self.energy_records_points_by_counter.get(counter, []):
+                    yield (point.time, self.energy_records_device_id, counter.value, point.value)
+
+        return _iter()
 
     async def instant_series(
         self,

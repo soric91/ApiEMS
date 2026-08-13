@@ -1,9 +1,9 @@
 """GET /dashboard/summary: payload consolidado del panel en una llamada.
 
 La clave del endpoint no es inventar datos sino servir en un solo request lo
-que hoy llega en tres (/dashboard, /costs/range, /kpis) — por eso los tests
+que hoy llega por separado (/costs/range, /reports/daily) — por eso los tests
 centrales son de consistencia: los valores del resumen tienen que coincidir
-con los de los endpoints individuales del mismo período.
+con los de los endpoints del mismo período.
 """
 
 from datetime import UTC, datetime
@@ -86,31 +86,27 @@ def test_dashboard_summary_full_payload(
     assert data["kpis"]["consumption_daily_kwh"] == 3.2
 
 
-def test_dashboard_summary_consistent_with_dashboard(
+def test_dashboard_summary_instant_fields_match_realtime_state(
     client: TestClient,
     app: FastAPI,
     fake_influx_repo: FakeInfluxRepository,
     auth_headers: dict[str, str],
 ) -> None:
-    """Los campos que comparte con /dashboard tienen que ser idénticos."""
+    """Los campos en vivo del resumen tienen que salir del snapshot en RAM."""
     _seed(client, app, fake_influx_repo, 4.0)
 
     summary = client.get("/api/v1/dashboard/summary", headers=auth_headers).json()["data"]
-    dashboard = client.get("/api/v1/dashboard", headers=auth_headers).json()["data"]
 
-    for field in (
-        "power_active_total_w",
-        "voltage_a",
-        "voltage_b",
-        "current_a",
-        "current_b",
-        "power_factor",
-        "consumption_today_kwh",
-        "consumption_month_kwh",
-        "export_today_kwh",
-        "export_month_kwh",
-    ):
-        assert summary[field] == dashboard[field], f"campo {field} divergió de /dashboard"
+    assert summary["power_active_total_w"] == -442.2  # READING["TotW"]
+    assert summary["voltage_a"] == 120.4
+    assert summary["voltage_b"] == 121.2
+    assert summary["current_a"] == 1.93
+    assert summary["current_b"] == 2.81
+    assert summary["power_factor"] == 0.75
+    assert summary["consumption_today_kwh"] == 4.0
+    assert summary["consumption_month_kwh"] == 4.0
+    assert summary["export_today_kwh"] == 4.0
+    assert summary["export_month_kwh"] == 4.0
 
 
 def test_dashboard_summary_costs_day_consistent_with_costs_range(
@@ -144,19 +140,19 @@ def test_dashboard_summary_costs_day_consistent_with_costs_range(
         assert summary_costs[field] == range_costs[field], f"costos: campo {field} divergió"
 
 
-def test_dashboard_summary_kpis_consistent_with_kpis_endpoint(
+def test_dashboard_summary_kpis_consistent_with_report(
     client: TestClient,
     app: FastAPI,
     fake_influx_repo: FakeInfluxRepository,
     auth_headers: dict[str, str],
 ) -> None:
-    """Los KPIs del resumen tienen que coincidir con /kpis (mismo período "hoy")."""
+    """Los KPIs del resumen tienen que coincidir con /reports/daily (mismo período "hoy")."""
     _seed(client, app, fake_influx_repo, 2.0)
 
     summary_kpis = client.get("/api/v1/dashboard/summary", headers=auth_headers).json()["data"][
         "kpis"
     ]
-    endpoint_kpis = client.get("/api/v1/kpis", headers=auth_headers).json()["data"]
+    report_kpis = client.get("/api/v1/reports/daily", headers=auth_headers).json()["data"]["kpis"]
 
     for field in (
         "power_avg_w",
@@ -172,7 +168,7 @@ def test_dashboard_summary_kpis_consistent_with_kpis_endpoint(
         "export_daily_kwh",
         "export_monthly_kwh",
     ):
-        assert summary_kpis[field] == endpoint_kpis[field], f"kpis: campo {field} divergió"
+        assert summary_kpis[field] == report_kpis[field], f"kpis: campo {field} divergió"
 
 
 def test_dashboard_summary_unknown_device_id_404(

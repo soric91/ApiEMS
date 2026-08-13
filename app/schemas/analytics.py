@@ -70,17 +70,6 @@ class CompareResult(BaseModel):
     export_delta_pct: float | None
 
 
-class AnalyticsOverview(BaseModel):
-    period_start: datetime
-    period_end: datetime
-    device_id: str | None
-    consumption_kwh: float
-    export_kwh: float
-    max_demand: MaxDemandResult
-    load_factor: LoadFactorResult
-    base_load: BaseLoadResult
-
-
 class AnalyticsSummary(BaseModel):
     """Resumen general para exportar (ej. PDF desde el frontend): consumo y
     exportación diario/semanal/mensual, patrón horario típico, hora de mayor

@@ -1,6 +1,6 @@
 """Envolturas cacheadas (TTL) de las lecturas más repetidas a InfluxDB.
 
-Usadas por dashboard, consumption/export, KPIs, analytics y reportes.
+Usadas por dashboard, analytics, reportes y costos.
 NO se usan en /history (consultas exploratorias de rango arbitrario) ni en
 el pipeline de tiempo real, que debe permanecer siempre fresco.
 """

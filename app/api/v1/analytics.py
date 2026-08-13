@@ -1,12 +1,11 @@
-"""Analytics: perfiles, demanda, factor de carga, carga base, comparación.
+"""Analytics: perfiles horarios, comparación de periodos y energía reactiva.
 
-Todos los indicadores de carga (max-demand, load-factor, base-load) se
-calculan solo sobre POWER_ACTIVE_INST_TOTAL > 0 (importación de la red):
-el sistema no mide consumo bruto de la casa, así que durante exportación
-esos indicadores no están definidos.
+Los indicadores de carga (max-demand, load-factor, base-load) ya no tienen
+endpoint propio (fase V3): se calculan solo sobre POWER_ACTIVE_INST_TOTAL > 0
+(importación de la red) y viven dentro de /reports/*. Acá quedan los perfiles,
+las comparaciones y los cuadrantes reactivos.
 """
 
-import asyncio
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -18,30 +17,22 @@ from app.core.config import Settings, get_settings
 from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.dependencies.tariff import get_tariff_config
-from app.models.variables import REACTIVE_QUADRANTS, Variable
+from app.models.variables import REACTIVE_QUADRANTS
 from app.repositories.influx import EnergyRecord
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.analytics import (
-    AnalyticsOverview,
     AnalyticsSummary,
-    BaseLoadResult,
     CompareResult,
     HourProfilePoint,
-    LoadFactorResult,
-    MaxDemandResult,
     ReactiveQuadrantsResult,
     WeekdayProfilePoint,
 )
 from app.schemas.common import ApiResponse
 from app.schemas.tariff import TariffConfig
-from app.services.analytics.base_load import DEFAULT_PERCENTILE, base_load
 from app.services.analytics.compare import compare_periods
-from app.services.analytics.demand import max_demand
-from app.services.analytics.load_factor import load_factor
 from app.services.analytics.profile import daily_profile, weekday_profile
 from app.services.analytics.reactive import reactive_quadrants
 from app.services.analytics.summary import analytics_summary
-from app.services.influx.cache import cached_energy_total
 from app.services.periods import PeriodBounds, resolve_period
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -67,48 +58,6 @@ def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | No
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-
-
-@router.get(
-    "",
-    summary="Resumen de analytics",
-    response_model=ApiResponse[AnalyticsOverview],
-    deprecated=True,  # subconjunto literal de /reports/daily (max_demand/load_factor/base_load)
-)
-async def analytics_overview(
-    repo: RepoDep,
-    settings: SettingsDep,
-    fleet: CurrentFleet,
-    from_: FromQuery = None,
-    to: ToQuery = None,
-    device_id: str | None = None,
-) -> ApiResponse[AnalyticsOverview]:
-    """Consumo, exportación, demanda pico, factor de carga y carga base del
-    periodo (por defecto: hoy)."""
-    bounds = _resolve_range(settings, from_, to)
-    consumption, export, demand, lf, bl = await asyncio.gather(
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_POS, bounds.start, bounds.stop, device_id
-        ),
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_NEG, bounds.start, bounds.stop, device_id
-        ),
-        max_demand(repo, bounds.start, bounds.stop, device_id),
-        load_factor(repo, bounds.start, bounds.stop, device_id),
-        base_load(repo, bounds.start, bounds.stop, device_id),
-    )
-    return ApiResponse(
-        data=AnalyticsOverview(
-            period_start=bounds.start,
-            period_end=bounds.stop,
-            device_id=device_id,
-            consumption_kwh=consumption,
-            export_kwh=export,
-            max_demand=demand,
-            load_factor=lf,
-            base_load=bl,
-        )
-    )
 
 
 @router.get(
@@ -154,62 +103,6 @@ async def analytics_monthly_profile(
     return ApiResponse(
         data=await weekday_profile(repo, bounds.start, bounds.stop, device_id, settings.TIMEZONE)
     )
-
-
-@router.get(
-    "/max-demand",
-    summary="Demanda máxima (pico de importación)",
-    response_model=ApiResponse[MaxDemandResult],
-)
-async def analytics_max_demand(
-    repo: RepoDep,
-    settings: SettingsDep,
-    fleet: CurrentFleet,
-    from_: FromQuery = None,
-    to: ToQuery = None,
-    device_id: str | None = None,
-) -> ApiResponse[MaxDemandResult]:
-    """Pico de potencia importada de la red en el periodo, con su timestamp."""
-    bounds = _resolve_range(settings, from_, to)
-    return ApiResponse(data=await max_demand(repo, bounds.start, bounds.stop, device_id))
-
-
-@router.get(
-    "/load-factor",
-    summary="Factor de carga de la importación",
-    response_model=ApiResponse[LoadFactorResult],
-)
-async def analytics_load_factor(
-    repo: RepoDep,
-    settings: SettingsDep,
-    fleet: CurrentFleet,
-    from_: FromQuery = None,
-    to: ToQuery = None,
-    device_id: str | None = None,
-) -> ApiResponse[LoadFactorResult]:
-    """`promedio / pico` de la potencia importada (0..1); más cerca de 1 =
-    demanda más plana. Solo considera ventanas de importación."""
-    bounds = _resolve_range(settings, from_, to)
-    return ApiResponse(data=await load_factor(repo, bounds.start, bounds.stop, device_id))
-
-
-@router.get(
-    "/base-load", summary="Carga base aproximada", response_model=ApiResponse[BaseLoadResult]
-)
-async def analytics_base_load(
-    repo: RepoDep,
-    settings: SettingsDep,
-    fleet: CurrentFleet,
-    from_: FromQuery = None,
-    to: ToQuery = None,
-    percentile: Annotated[float, Query(gt=0, lt=1)] = DEFAULT_PERCENTILE,
-    device_id: str | None = None,
-) -> ApiResponse[BaseLoadResult]:
-    """Percentil bajo (por defecto P10) de la potencia importada — proxy de
-    la carga siempre encendida. No es consumo real aislado de la generación
-    solar: el sistema no mide eso."""
-    bounds = _resolve_range(settings, from_, to)
-    return ApiResponse(data=await base_load(repo, bounds.start, bounds.stop, device_id, percentile))
 
 
 @router.get("/compare", summary="Comparar dos periodos", response_model=ApiResponse[CompareResult])

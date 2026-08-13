@@ -27,38 +27,17 @@ from app.websocket.routes import router as websocket_router
 
 OPENAPI_TAGS = [
     {"name": "Health", "description": "Estado del servicio"},
-    {"name": "Auth", "description": "Autenticación JWT (access + refresh, usuario único)"},
     {
         "name": "Dashboard",
         "description": "Panel principal: instantáneas (RAM) + energía del periodo (InfluxDB)",
     },
     {
-        "name": "Realtime",
-        "description": "Tiempo real desde memoria (RAM), alimentado por MQTT. "
-        "No consulta InfluxDB.",
-    },
-    {
         "name": "History",
-        "description": "Series y resúmenes históricos consultados directo a InfluxDB",
-    },
-    {
-        "name": "Consumption",
-        "description": "Energía importada de la red (difference() sobre POWER_ACTIVE_TOTAL_POS)",
-    },
-    {
-        "name": "Export",
-        "description": "Excedente solar exportado a la red "
-        "(difference() sobre POWER_ACTIVE_TOTAL_NEG)",
+        "description": "Series temporales consultadas directo a InfluxDB",
     },
     {
         "name": "Analytics",
-        "description": "Perfiles, demanda pico, factor de carga, carga base y comparación "
-        "de periodos (Polars)",
-    },
-    {
-        "name": "KPIs",
-        "description": "Indicadores clave del periodo: potencia/voltaje/corriente/factor "
-        "de potencia + energía (Polars)",
+        "description": "Perfiles, comparaciones y energía reactiva por cuadrante (Polars)",
     },
     {
         "name": "Reports",
@@ -69,13 +48,16 @@ OPENAPI_TAGS = [
         "description": "Alertas de consumo anómalo por bandas de percentiles (sin ML)",
     },
     {
-        "name": "Tariff",
-        "description": "Configuración de tarifa eléctrica (COP/kWh) — editable, "
-        "persistida en archivo",
-    },
-    {
         "name": "Costs",
         "description": "Costo/crédito en COP derivado de energía + tarifa configurada",
+    },
+    {
+        "name": "Devices",
+        "description": "Inventario de medidores del cliente, desde el CRM",
+    },
+    {
+        "name": "Variables",
+        "description": "Variables declaradas y cuáles tienen datos",
     },
 ]
 

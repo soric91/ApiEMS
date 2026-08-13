@@ -267,7 +267,7 @@ esa variable no está en la respuesta.
 
 Todos bajo `/api/v1`, todos con `Authorization: Bearer <token del CRM>`.
 
-### Contrato vigente (la refactorización V1/V2 los hizo canónicos)
+### Contrato vigente
 
 |                                                                |                                                                                   |
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -276,7 +276,7 @@ Todos bajo `/api/v1`, todos con `Authorization: Bearer <token del CRM>`.
 | `GET /reports/{daily,weekly,monthly,yearly,custom}`            | Informes: consumo, exportación, KPIs, analytics y costos del período              |
 | `GET /variables`                                               | Qué se puede graficar, ya cruzado contra InfluxDB                                 |
 | `GET /devices`                                                 | Inventario del CRM (los medidores del cliente, incluidos los de gateways caídos)  |
-| `GET /history` · `/history/downsample` · `/history/range`      | Series temporales                                                                 |
+| `GET /history` · `/history/downsample`                         | Series temporales                                                                 |
 | `GET /costs/range`                                             | Costo de un rango, con la tarifa que el CRM tenga cargada                         |
 | `GET /analytics/summary` · `daily-profile` · `monthly-profile` | Resumen de 30 días y perfiles                                                     |
 | `GET /analytics/reactive-quadrants`                            | Energía reactiva por cuadrante (kvarh): Q1/Q2 importada, Q3/Q4 exportada          |
@@ -285,15 +285,15 @@ Todos bajo `/api/v1`, todos con `Authorization: Bearer <token del CRM>`.
 | `WS /ws`                                                       | Lecturas en vivo                                                                  |
 | `GET /health`                                                  | Sin dependencias externas                                                         |
 
-### Deprecados (esperando la fase destructiva V3)
+### Eliminados en la fase V3
 
-Los endpoints que la refactorización sustituyó siguen respondiendo con
-`deprecated=True` pero **el panel ya no los llama**: `/consumption`, `/export`,
-`/kpis`, `/analytics` (resumen general), `/analytics/max-demand`,
-`/analytics/load-factor`, `/analytics/base-load`, `/dashboard/cards`,
-`/realtime/latest` y el resto del grupo de reportes duplicados (21 en total). Sin
-consumidores, se borran en la fase V3 una vez el nuevo contrato lleve una semana
-en producción.
+Endpoints que el panel dejó de llamar cuando la refactorización consolidó el
+contrato y que se borraron sin consumidores: `/dashboard`, `/dashboard/cards`,
+`/consumption/*`, `/export/*`, `/kpis`, `/analytics` (resumen general),
+`/analytics/max-demand`, `/analytics/load-factor`, `/analytics/base-load`,
+`/history/range`, `/costs/{day,week,month,year}`, `/realtime/latest`,
+`/realtime/device`. La fuente única de consumo/exportación/KPIs/costos son
+`/reports/*` y `/dashboard/summary`; el tiempo real va por `WS /ws`.
 
 ---
 

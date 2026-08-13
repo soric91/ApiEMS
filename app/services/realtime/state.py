@@ -1,7 +1,7 @@
 """Último valor por dispositivo, en memoria.
 
 El tiempo real NUNCA consulta InfluxDB: cada mensaje MQTT actualiza este
-estado y de aquí leen el WebSocket y los endpoints /realtime.
+estado y de aquí leen el WebSocket y el panel en vivo.
 Sin locks: FastAPI corre en un solo event loop y update() es síncrono.
 """
 

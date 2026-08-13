@@ -1,9 +1,9 @@
 """`GET /api/v1/devices` — qué medidores tiene este cliente.
 
-El endpoint existe porque el panel armaba su lista con `/realtime/latest`, que
-solo conoce lo que publicó desde que el proceso arrancó. Lo que se prueba acá
-es sobre todo lo que esa fuente **no** podía dar: los equipos de un gateway
-caído, y la sede y el gateway de cada uno.
+El endpoint existe porque el panel armaba su lista con el último valor en
+memoria, que solo conoce lo que publicó desde que el proceso arrancó. Lo que
+se prueba acá es sobre todo lo que esa fuente **no** podía dar: los equipos
+de un gateway caído, y la sede y el gateway de cada uno.
 """
 
 from typing import Any

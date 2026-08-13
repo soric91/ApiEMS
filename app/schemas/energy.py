@@ -1,4 +1,5 @@
-"""Modelos de /consumption y /export."""
+"""Modelos de resúmenes de energía por periodo (consumidos por el servicio
+`period_summary` y el cálculo de costos por preset)."""
 
 from datetime import datetime
 from typing import Literal

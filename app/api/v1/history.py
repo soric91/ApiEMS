@@ -2,11 +2,8 @@
 
 /history            → serie con interval explícito.
 /history/downsample  → serie con interval calculado para no exceder target_points.
-/history/range       → resumen (sin ventana): mean/max/min/last (instantáneas)
-                        o total_kwh (contadores).
 """
 
-import asyncio
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -17,7 +14,7 @@ from app.dependencies.influx import get_influx_repository
 from app.models.variables import Aggregation, Variable, is_cumulative
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
-from app.schemas.history import HistoryResponse, RangeSummary
+from app.schemas.history import HistoryResponse
 from app.schemas.influx import TimeSeriesPoint
 
 router = APIRouter(prefix="/history", tags=["History"])
@@ -133,53 +130,3 @@ async def history_downsample(
     return ApiResponse(
         data=await _series(repo, variable, from_, to, interval_seconds, aggregation, device_id)
     )
-
-
-@router.get(
-    "/range",
-    summary="Resumen estadístico de un rango",
-    response_model=ApiResponse[RangeSummary],
-    responses={400: {"description": "Rango inválido"}},
-)
-async def history_range(
-    repo: RepoDep,
-    fleet: CurrentFleet,
-    variable: Variable,
-    from_: FromQuery,
-    to: ToQuery,
-    device_id: str | None = None,
-) -> ApiResponse[RangeSummary]:
-    """Resumen sin ventana temporal, calculado sobre todo el rango:
-
-    - Variable instantánea → `mean`/`max`/`min`/`last`.
-    - Contador acumulativo → `total_kwh` (`spread()` = last - first);
-      `mean`/`max`/`min` quedan en `null` porque no aplican sobre contadores.
-    """
-    _validate_range(from_, to)
-    if is_cumulative(variable):
-        total = await repo.energy_total(variable, from_, to, device_id)
-        summary = RangeSummary(
-            variable=variable,
-            device_id=device_id,
-            period_start=from_,
-            period_end=to,
-            total_kwh=total,
-        )
-    else:
-        mean, max_, min_, last = await asyncio.gather(
-            repo.instant_reduce(variable, from_, to, Aggregation.MEAN, device_id),
-            repo.instant_reduce(variable, from_, to, Aggregation.MAX, device_id),
-            repo.instant_reduce(variable, from_, to, Aggregation.MIN, device_id),
-            repo.instant_reduce(variable, from_, to, Aggregation.LAST, device_id),
-        )
-        summary = RangeSummary(
-            variable=variable,
-            device_id=device_id,
-            period_start=from_,
-            period_end=to,
-            mean=mean,
-            max=max_,
-            min=min_,
-            last=last,
-        )
-    return ApiResponse(data=summary)

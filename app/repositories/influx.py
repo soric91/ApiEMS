@@ -207,7 +207,7 @@ class InfluxRepository:
     ) -> float | None:
         """Reduce todo el rango a un solo valor (mean/max/min/last), sin ventana.
 
-        Para resúmenes de rango (p. ej. /history/range); no usar para series.
+        Para resúmenes de un rango completo; no usar para series.
         """
         if is_cumulative(variable):
             raise InvalidAggregationError(variable, aggregation)

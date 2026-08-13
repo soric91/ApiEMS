@@ -15,8 +15,6 @@ from app.models.variables import Variable
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.dashboard import (
-    DashboardCard,
-    DashboardData,
     DashboardStatus,
     DashboardSummary,
 )
@@ -60,116 +58,6 @@ def _pick_device(state: RealtimeState, device_id: str | None) -> DeviceSnapshot:
     return snapshots[0]
 
 
-async def _build_dashboard(
-    repo: ScopedInfluxRepository,
-    state: RealtimeState,
-    settings: Settings,
-    device_id: str | None,
-) -> DashboardData:
-    snapshot = _pick_device(state, device_id)
-    day_start = resolve_period("day", settings.TIMEZONE).start
-    month_start = resolve_period("month", settings.TIMEZONE).start
-    now = datetime.now(tz=UTC)
-
-    consumption_today, consumption_month, export_today, export_month = await asyncio.gather(
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_POS, day_start, now, snapshot.device_id
-        ),
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_POS, month_start, now, snapshot.device_id
-        ),
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_NEG, day_start, now, snapshot.device_id
-        ),
-        cached_energy_total(
-            repo, Variable.POWER_ACTIVE_TOTAL_NEG, month_start, now, snapshot.device_id
-        ),
-    )
-
-    data = snapshot.data
-    return DashboardData(
-        device_id=snapshot.device_id,
-        power_active_total_w=data.get(Variable.POWER_ACTIVE_INST_TOTAL.value, 0.0),
-        voltage_a=data.get(Variable.VOLTAGE_A.value, 0.0),
-        voltage_b=data.get(Variable.VOLTAGE_B.value, 0.0),
-        current_a=data.get(Variable.CURRENT_A.value, 0.0),
-        current_b=data.get(Variable.CURRENT_B.value, 0.0),
-        power_factor=data.get(Variable.FACTOR_POTENCIA_TOTAL.value, 0.0),
-        consumption_today_kwh=consumption_today,
-        consumption_month_kwh=consumption_month,
-        export_today_kwh=export_today,
-        export_month_kwh=export_month,
-        last_update=snapshot.timestamp,
-    )
-
-
-@router.get(
-    "",
-    summary="Panel principal",
-    response_model=ApiResponse[DashboardData],
-    responses={
-        404: {"description": "device_id sin datos en memoria"},
-        503: {"description": "Sin datos en tiempo real todavía"},
-    },
-)
-async def dashboard(
-    repo: RepoDep,
-    state: StateDep,
-    settings: SettingsDep,
-    fleet: CurrentFleet,
-    device_id: str | None = None,
-) -> ApiResponse[DashboardData]:
-    """Potencia/voltaje/corriente/factor de potencia actuales (RAM, vía MQTT) +
-    consumo y exportación de hoy y del mes (InfluxDB, `spread()` sobre los
-    contadores). Si no se indica `device_id`, usa el primer dispositivo activo.
-    """
-    return ApiResponse(data=await _build_dashboard(repo, state, settings, device_id))
-
-
-@router.get(
-    "/cards",
-    summary="Tarjetas resumidas del dashboard",
-    response_model=ApiResponse[list[DashboardCard]],
-)
-async def dashboard_cards(
-    repo: RepoDep,
-    state: StateDep,
-    settings: SettingsDep,
-    fleet: CurrentFleet,
-    device_id: str | None = None,
-) -> ApiResponse[list[DashboardCard]]:
-    """Mismos datos que `/dashboard`, formateados como lista de tarjetas
-    `{key, label, value, unit}` listas para renderizar en el frontend.
-    """
-    d = await _build_dashboard(repo, state, settings, device_id)
-    cards = [
-        DashboardCard(key="power", label="Potencia actual", value=d.power_active_total_w, unit="W"),
-        DashboardCard(key="voltage_a", label="Voltaje A", value=d.voltage_a, unit="V"),
-        DashboardCard(key="voltage_b", label="Voltaje B", value=d.voltage_b, unit="V"),
-        DashboardCard(key="current_a", label="Corriente A", value=d.current_a, unit="A"),
-        DashboardCard(key="current_b", label="Corriente B", value=d.current_b, unit="A"),
-        DashboardCard(
-            key="power_factor", label="Factor de potencia", value=d.power_factor, unit=""
-        ),
-        DashboardCard(
-            key="consumption_today", label="Consumo hoy", value=d.consumption_today_kwh, unit="kWh"
-        ),
-        DashboardCard(
-            key="consumption_month",
-            label="Consumo mes",
-            value=d.consumption_month_kwh,
-            unit="kWh",
-        ),
-        DashboardCard(
-            key="export_today", label="Exportado hoy", value=d.export_today_kwh, unit="kWh"
-        ),
-        DashboardCard(
-            key="export_month", label="Exportado mes", value=d.export_month_kwh, unit="kWh"
-        ),
-    ]
-    return ApiResponse(data=cards)
-
-
 @router.get(
     "/status",
     summary="Estado de conectividad",
@@ -181,8 +69,8 @@ async def dashboard_status(
     """Estado de MQTT, InfluxDB y frescura de los dispositivos en memoria.
 
     Un dispositivo se considera `online` si reportó en los últimos
-    90 segundos; más allá de eso, su último valor sigue disponible en
-    `/realtime` pero se considera obsoleto.
+    90 segundos; más allá de eso, su último valor sigue disponible por el
+    WebSocket pero se considera obsoleto.
     """
     influx = cast(InfluxService, request.app.state.influx)
     mqtt = cast(MQTTService, request.app.state.mqtt)
@@ -253,7 +141,7 @@ async def dashboard_summary(
 
     Reutiliza `consolidate()` (día) y `compute_cost_from_points` (mes) —
     todas las lecturas pasan por las envolturas cacheadas, así que un panel
-    que acaba de pedir /dashboard y /kpis no vuelve a golpear InfluxDB.
+    que acaba de pedir /reports/daily no vuelve a golpear InfluxDB.
     """
     snapshot = _pick_device(state, device_id)
     did = snapshot.device_id

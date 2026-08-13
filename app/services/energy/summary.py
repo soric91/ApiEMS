@@ -1,8 +1,8 @@
 """Resumen de energía (importada o exportada) por periodo.
 
-Compartido por /consumption y /export, que solo difieren en qué contador
-consultan (POWER_ACTIVE_TOTAL_POS vs _NEG) — misma lógica de límites de
-periodo y desglose.
+Sirve al cálculo de costos por preset de periodo (day/week/month/year) y
+conserva el caché de meses cerrados; los endpoints HTTP de consumo/exportación
+que lo consumían ya no existen (fase V3) y hoy el contrato pasa por /reports.
 """
 
 import asyncio

@@ -51,7 +51,7 @@ class TariffConfig(BaseModel):
 
 
 class CostPoint(BaseModel):
-    """Costo/crédito de un solo bucket (mismo bucket que /consumption y /export)."""
+    """Costo/crédito de un solo bucket (misma base que los costos de /reports y /costs/range)."""
 
     time: datetime
     consumption_kwh: float

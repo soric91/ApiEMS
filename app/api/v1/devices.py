@@ -1,8 +1,8 @@
 """Qué medidores tiene este cliente.
 
-Existe porque el panel armaba su lista de medidores con `GET /realtime/latest`,
-que devuelve el último valor en memoria de cada equipo que publicó **desde que
-ApiEMS arrancó**. Con esa fuente pasaban tres cosas malas:
+Existe porque el panel armaba su lista de medidores con el último valor en
+memoria de cada equipo que publicó **desde que ApiEMS arrancó**. Con esa fuente
+pasaban tres cosas malas:
 
 * Al reiniciar ApiEMS el selector quedaba vacío hasta que llegara la primera
   lectura de cada equipo.

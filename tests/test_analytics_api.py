@@ -3,12 +3,8 @@ from fastapi.testclient import TestClient
 from tests.fakes import FakeInfluxRepository
 
 ENDPOINTS = [
-    "/api/v1/analytics",
     "/api/v1/analytics/daily-profile",
     "/api/v1/analytics/monthly-profile",
-    "/api/v1/analytics/max-demand",
-    "/api/v1/analytics/load-factor",
-    "/api/v1/analytics/base-load",
 ]
 
 
@@ -28,6 +24,7 @@ def test_all_analytics_endpoints_require_auth(client: TestClient) -> None:
         == 401
     )
     assert client.get("/api/v1/analytics/summary").status_code == 401
+    assert client.get("/api/v1/analytics/reactive-quadrants").status_code == 401
 
 
 def test_all_analytics_endpoints_default_to_today(
@@ -39,27 +36,6 @@ def test_all_analytics_endpoints_default_to_today(
         assert response.json()["success"] is True
 
 
-def test_analytics_overview_shape(
-    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
-) -> None:
-    fake_influx_repo.energy_total_value = 2.5
-    response = client.get("/api/v1/analytics", headers=auth_headers)
-    body = response.json()["data"]
-    assert body["consumption_kwh"] == 2.5
-    assert "max_demand" in body
-    assert "load_factor" in body
-    assert "base_load" in body
-
-
-def test_analytics_invalid_range_rejected(client: TestClient, auth_headers: dict[str, str]) -> None:
-    response = client.get(
-        "/api/v1/analytics/max-demand",
-        params={"from": "2026-07-02T00:00:00Z", "to": "2026-07-01T00:00:00Z"},
-        headers=auth_headers,
-    )
-    assert response.status_code == 400
-
-
 def test_monthly_profile_invalid_range_rejected(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
@@ -69,15 +45,6 @@ def test_monthly_profile_invalid_range_rejected(
         headers=auth_headers,
     )
     assert response.status_code == 400
-
-
-def test_base_load_percentile_bounds(client: TestClient, auth_headers: dict[str, str]) -> None:
-    ok = client.get("/api/v1/analytics/base-load", params={"percentile": 0.2}, headers=auth_headers)
-    assert ok.status_code == 200
-    bad = client.get(
-        "/api/v1/analytics/base-load", params={"percentile": 1.5}, headers=auth_headers
-    )
-    assert bad.status_code == 422
 
 
 def test_compare_requires_all_bounds(client: TestClient, auth_headers: dict[str, str]) -> None:

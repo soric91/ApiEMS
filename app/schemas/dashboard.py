@@ -8,28 +8,6 @@ from app.schemas.kpis import KpiSummary
 from app.schemas.tariff import CostBreakdown
 
 
-class DashboardData(BaseModel):
-    device_id: str
-    power_active_total_w: float
-    voltage_a: float
-    voltage_b: float
-    current_a: float
-    current_b: float
-    power_factor: float
-    consumption_today_kwh: float
-    consumption_month_kwh: float
-    export_today_kwh: float
-    export_month_kwh: float
-    last_update: datetime
-
-
-class DashboardCard(BaseModel):
-    key: str
-    label: str
-    value: float
-    unit: str
-
-
 class DashboardStatus(BaseModel):
     mqtt_connected: bool
     influx_connected: bool
@@ -64,5 +42,5 @@ class DashboardSummary(BaseModel):
     # Costos del día y del mes (mismos rangos que /costs/*)
     costs_day: CostBreakdown
     costs_month: CostBreakdown
-    # KPIs del día (idénticos a /kpis con el default de hoy)
+    # KPIs del día (mismos que /reports/daily y /dashboard/summary)
     kpis: KpiSummary

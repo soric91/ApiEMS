@@ -86,33 +86,3 @@ def test_history_downsample_computes_interval(
     assert response.status_code == 200
     body = response.json()["data"]
     assert body["interval_seconds"] > 900  # rango de 6 meses / 100 puntos >> 15min
-
-
-def test_history_range_instant_returns_stats(
-    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
-) -> None:
-    fake_influx_repo.instant_reduce_value = 42.0
-    response = client.get(
-        "/api/v1/history/range",
-        params={"variable": "PhV_phsA", "from": FROM, "to": TO},
-        headers=auth_headers,
-    )
-    assert response.status_code == 200
-    body = response.json()["data"]
-    assert body["mean"] == 42.0
-    assert body["total_kwh"] is None
-
-
-def test_history_range_counter_returns_total_only(
-    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
-) -> None:
-    fake_influx_repo.energy_total_value = 12.3
-    response = client.get(
-        "/api/v1/history/range",
-        params={"variable": "TotWh_export", "from": FROM, "to": TO},
-        headers=auth_headers,
-    )
-    assert response.status_code == 200
-    body = response.json()["data"]
-    assert body["total_kwh"] == 12.3
-    assert body["mean"] is None

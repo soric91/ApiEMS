@@ -1,4 +1,4 @@
-"""Modelos de /kpis."""
+"""Modelos de KPIs (embebidos en /dashboard/summary y /reports/*)."""
 
 from datetime import datetime
 

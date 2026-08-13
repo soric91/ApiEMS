@@ -16,6 +16,7 @@ from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
 from app.schemas.history import HistoryResponse
 from app.schemas.influx import TimeSeriesPoint
+from app.services.influx.cache import cached_energy_series, cached_instant_series
 
 router = APIRouter(prefix="/history", tags=["History"])
 
@@ -51,13 +52,26 @@ async def _series(
     interval_seconds: int,
     aggregation: Aggregation,
     device_id: str | None,
+    *,
+    use_cache: bool = False,
 ) -> HistoryResponse:
     every = timedelta(seconds=interval_seconds)
     if is_cumulative(variable):
-        raw = await repo.energy_series(variable, from_, to, every, device_id)
-        used_aggregation = Aggregation.LAST  # difference() ya aplicado; no es una reducción simple
+        # difference() ya aplicado; no es una reducción simple.
+        raw = (
+            await cached_energy_series(repo, variable, from_, to, every, device_id)
+            if use_cache
+            else await repo.energy_series(variable, from_, to, every, device_id)
+        )
+        used_aggregation = Aggregation.LAST
     else:
-        raw = await repo.instant_series(variable, from_, to, every, aggregation, device_id)
+        raw = (
+            await cached_instant_series(
+                repo, variable, from_, to, every, aggregation, device_id
+            )
+            if use_cache
+            else await repo.instant_series(variable, from_, to, every, aggregation, device_id)
+        )
         used_aggregation = aggregation
     points = [TimeSeriesPoint(time=p.time, value=p.value) for p in raw]
     return HistoryResponse(
@@ -127,6 +141,12 @@ async def history_downsample(
     _validate_range(from_, to)
     span_seconds = (to - from_).total_seconds()
     interval_seconds = max(MIN_INTERVAL_SECONDS, int(span_seconds / target_points))
+    # El downsample es la consulta que dispara el backfill de las gráficas en
+    # vivo (12-4 requests por variable, siempre el mismo patrón de rango), y
+    # cada una golpeaba InfluxDB sin caché. Acá sí va cacheado (TTL 30 s):
+    # /history (exploratorio, rango arbitrario) sigue sin cachear.
     return ApiResponse(
-        data=await _series(repo, variable, from_, to, interval_seconds, aggregation, device_id)
+        data=await _series(
+            repo, variable, from_, to, interval_seconds, aggregation, device_id, use_cache=True
+        )
     )

@@ -6,6 +6,7 @@ sistema no mide consumo bruto de la casa, así que el factor de carga del
 efectivamente se importa de la red.
 """
 
+import asyncio
 from datetime import datetime
 
 from app.models.variables import Variable
@@ -25,5 +26,6 @@ async def load_factor(
     points = await cached_instant_series(
         repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
     )
-    _, importing = power_frames(points)
-    return load_factor_result(start, stop, device_id, importing)
+    # Polars es CPU síncrono: se corre fuera del event loop.
+    _, importing = await asyncio.to_thread(power_frames, points)
+    return await asyncio.to_thread(load_factor_result, start, stop, device_id, importing)

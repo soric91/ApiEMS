@@ -57,14 +57,18 @@ async def compute_kpis(
         ),
     )
 
-    # Un medidor monofásico/bifásico simplemente no reporta la fase C — la serie
-    # llega vacía y no distorsiona el promedio pooled de las fases que sí existen.
-    power_avg, power_max, _ = _stats(power_points)
-    voltage_avg, voltage_max, voltage_min = _stats(
-        voltage_a_points + voltage_b_points + voltage_c_points
+    # Polars es CPU síncrono: las cuatro reducciones se corren en threads,
+    # no en el event loop (ver skill fastapi).
+    power_avg, power_max, _ = await asyncio.to_thread(
+        _stats, power_points
     )
-    current_avg, _, _ = _stats(current_a_points + current_b_points + current_c_points)
-    pf_avg, _, _ = _stats(pf_points)
+    voltage_avg, voltage_max, voltage_min = await asyncio.to_thread(
+        _stats, voltage_a_points + voltage_b_points + voltage_c_points
+    )
+    current_avg, _, _ = await asyncio.to_thread(
+        _stats, current_a_points + current_b_points + current_c_points
+    )
+    pf_avg, _, _ = await asyncio.to_thread(_stats, pf_points)
 
     # Cuantías SIEMPRE dentro del rango pedido [start, stop]: los límites
     # día/semana/mes se alinean a `stop` y se recortan a `start`, de modo que

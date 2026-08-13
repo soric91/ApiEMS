@@ -1,5 +1,6 @@
 """Demanda máxima: pico de potencia importada de la red, con timestamp."""
 
+import asyncio
 from datetime import datetime
 
 from app.models.variables import Variable
@@ -19,5 +20,7 @@ async def max_demand(
     points = await cached_instant_series(
         repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
     )
-    _, importing = power_frames(points)
-    return max_demand_result(start, stop, device_id, importing)
+    # Polars es CPU síncrono: no corre dentro del event loop (ver skill
+    # fastapi — "blocking code is not run inside of async functions").
+    _, importing = await asyncio.to_thread(power_frames, points)
+    return await asyncio.to_thread(max_demand_result, start, stop, device_id, importing)

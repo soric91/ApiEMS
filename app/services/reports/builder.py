@@ -89,11 +89,16 @@ async def consolidate(
     power_points = await cached_instant_series(
         repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
     )
-    _, importing = power_frames(power_points)
+    # Polars es CPU síncrono (power_frames y los *_result): se corre fuera del
+    # event loop (ver skill fastapi — "blocking code is not run inside of
+    # async functions").
+    _, importing = await asyncio.to_thread(power_frames, power_points)
+    max_demand, load_factor, base_load = await asyncio.gather(
+        asyncio.to_thread(max_demand_result, start, stop, device_id, importing),
+        asyncio.to_thread(load_factor_result, start, stop, device_id, importing),
+        asyncio.to_thread(base_load_result, start, stop, device_id, importing, percentile),
+    )
     kpis = await compute_kpis(repo, settings, start, stop, device_id, power_points=power_points)
-    max_demand = max_demand_result(start, stop, device_id, importing)
-    load_factor = load_factor_result(start, stop, device_id, importing)
-    base_load = base_load_result(start, stop, device_id, importing, percentile)
     costs = compute_cost_from_points(
         tariff,
         cost_period,

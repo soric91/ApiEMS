@@ -18,6 +18,7 @@ allá de eso, "high". No hay entrenamiento ni modelo — son percentiles reales
 sobre datos reales, recalculados cada 24h (cache TTL).
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -27,12 +28,37 @@ from app.core.cache import cached
 from app.models.variables import Aggregation, Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.alerts import AlertSeverity, BandStats
+from app.schemas.influx import EnergyPoint, TimeSeriesPoint
 from app.services.analytics.common import series_quantile
 from app.utils.period import local_hour, start_of_day
 
 MIN_SAMPLES = 20
 MIN_WEEKDAY_SAMPLES = 3  # solo ~13 muestras posibles por día de semana en 90 días
 BASELINE_TTL = 86400  # 24h: la banda no cambia de forma relevante intradía
+
+
+def _hourly_bands(points: list[TimeSeriesPoint], tz_name: str) -> dict[int, BandStats]:
+    """Banda [p10, p90] por hora local, como puro cálculo (Polars, CPU
+    síncrono) — corre vía `asyncio.to_thread` desde el wrapper async."""
+    df = pl.DataFrame(
+        {
+            "hour": [local_hour(p.time, tz_name) for p in points],
+            "value": [p.value for p in points],
+        }
+    )
+    bands: dict[int, BandStats] = {}
+    for hour in range(24):
+        series: pl.Series = df.filter(pl.col("hour") == hour)[  # pyright: ignore[reportUnknownMemberType]
+            "value"
+        ]
+        if len(series) < MIN_SAMPLES:
+            continue
+        p10 = series_quantile(series, 0.10)
+        p90 = series_quantile(series, 0.90)
+        if p10 is None or p90 is None:
+            continue
+        bands[hour] = BandStats(p10=p10, p90=p90, sample_count=len(series))
+    return bands
 
 
 @cached(ttl_seconds=BASELINE_TTL)
@@ -56,45 +82,12 @@ async def hourly_power_baseline(
     )
     if not points:
         return {}
-
-    df = pl.DataFrame(
-        {
-            "hour": [local_hour(p.time, tz_name) for p in points],
-            "value": [p.value for p in points],
-        }
-    )
-    bands: dict[int, BandStats] = {}
-    for hour in range(24):
-        series: pl.Series = df.filter(pl.col("hour") == hour)[  # pyright: ignore[reportUnknownMemberType]
-            "value"
-        ]
-        if len(series) < MIN_SAMPLES:
-            continue
-        p10 = series_quantile(series, 0.10)
-        p90 = series_quantile(series, 0.90)
-        if p10 is None or p90 is None:
-            continue
-        bands[hour] = BandStats(p10=p10, p90=p90, sample_count=len(series))
-    return bands
+    return await asyncio.to_thread(_hourly_bands, points, tz_name)
 
 
-@cached(ttl_seconds=BASELINE_TTL)
-async def weekday_total_baseline(
-    repo: InfluxDataSource,
-    device_id: str | None,
-    tz_name: str,
-    days: int = 30,
-) -> dict[int, BandStats]:
-    """Banda [p10, p90] de energía importada diaria (kWh) por día de semana
-    (0=lunes..6=domingo), sobre los últimos `days` días COMPLETOS."""
-    today_start = start_of_day(tz_name)
-    start = today_start - timedelta(days=days)
-    daily_points = await repo.energy_series(
-        Variable.POWER_ACTIVE_TOTAL_POS, start, today_start, timedelta(days=1), device_id
-    )
-    if not daily_points:
-        return {}
-
+def _weekday_bands(daily_points: list[EnergyPoint], tz_name: str) -> dict[int, BandStats]:
+    """Banda [p10, p90] de energía importada diaria por día de semana, como
+    puro cálculo (Polars, CPU síncrono) — corre vía `asyncio.to_thread`."""
     tz = ZoneInfo(tz_name)
     df = pl.DataFrame(
         {
@@ -115,6 +108,25 @@ async def weekday_total_baseline(
             continue
         bands[weekday] = BandStats(p10=p10, p90=p90, sample_count=len(series))
     return bands
+
+
+@cached(ttl_seconds=BASELINE_TTL)
+async def weekday_total_baseline(
+    repo: InfluxDataSource,
+    device_id: str | None,
+    tz_name: str,
+    days: int = 30,
+) -> dict[int, BandStats]:
+    """Banda [p10, p90] de energía importada diaria (kWh) por día de semana
+    (0=lunes..6=domingo), sobre los últimos `days` días COMPLETOS."""
+    today_start = start_of_day(tz_name)
+    start = today_start - timedelta(days=days)
+    daily_points = await repo.energy_series(
+        Variable.POWER_ACTIVE_TOTAL_POS, start, today_start, timedelta(days=1), device_id
+    )
+    if not daily_points:
+        return {}
+    return await asyncio.to_thread(_weekday_bands, daily_points, tz_name)
 
 
 def classify(value: float, band: BandStats) -> AlertSeverity | None:

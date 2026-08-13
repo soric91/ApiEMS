@@ -8,6 +8,7 @@ import polars as pl
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.analytics import HourProfilePoint, WeekdayProfilePoint
+from app.schemas.influx import EnergyPoint, TimeSeriesPoint
 from app.services.analytics.common import auto_interval
 from app.services.influx.cache import cached_energy_series, cached_instant_series
 
@@ -15,24 +16,12 @@ _WEEKDAY_NAMES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado
 _DAY_INTERVAL = timedelta(days=1)
 
 
-async def daily_profile(
-    repo: InfluxDataSource,
-    start: datetime,
-    stop: datetime,
-    device_id: str | None,
-    tz_name: str,
-) -> list[HourProfilePoint]:
-    """Curva típica de potencia neta por hora del día, promediando todos los
-    días del rango solicitado. Agrupa por hora LOCAL (`tz_name`) — los
-    timestamps llegan de InfluxDB en UTC, y sin convertir primero
-    `.dt.hour()` extraería la hora UTC, no la de la zona configurada."""
-    every = auto_interval(start, stop)
-    points = await cached_instant_series(
-        repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
-    )
-    if not points:
-        return []
+def _daily_profile_df(points: list[TimeSeriesPoint], tz_name: str) -> list[HourProfilePoint]:
+    """La curva por hora local, como puro cálculo (Polars, CPU síncrono).
 
+    Vive aparte para que `daily_profile` lo corra con `asyncio.to_thread` en
+    vez de bloquear el event loop.
+    """
     df = pl.DataFrame({"time": [p.time for p in points], "value": [p.value for p in points]})
     grouped: pl.DataFrame = (
         df.with_columns(  # pyright: ignore[reportUnknownMemberType]
@@ -59,31 +48,33 @@ async def daily_profile(
     ]
 
 
-async def weekday_profile(
+async def daily_profile(
     repo: InfluxDataSource,
     start: datetime,
     stop: datetime,
     device_id: str | None,
     tz_name: str,
-) -> list[WeekdayProfilePoint]:
-    """Consumo/exportación promedio por día de la semana en el rango
-    solicitado. Agrupa por día de semana LOCAL (`tz_name`): para Bogotá
-    (detrás de UTC) el bucket diario ya alineado por `flux_window_offset`
-    cae en la misma fecha UTC, así que `.dt.weekday()` crudo coincide hoy —
-    pero eso es una coincidencia del signo del offset, no una garantía; una
-    zona adelantada a UTC sí correría el día. Se convierte siempre por
-    generalidad, no porque haya un bug activo hoy con `TIMEZONE=America/Bogota`."""
-    import_points, export_points = await asyncio.gather(
-        cached_energy_series(
-            repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, _DAY_INTERVAL, device_id
-        ),
-        cached_energy_series(
-            repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, _DAY_INTERVAL, device_id
-        ),
+) -> list[HourProfilePoint]:
+    """Curva típica de potencia neta por hora del día, promediando todos los
+    días del rango solicitado. Agrupa por hora LOCAL (`tz_name`) — los
+    timestamps llegan de InfluxDB en UTC, y sin convertir primero
+    `.dt.hour()` extraería la hora UTC, no la de la zona configurada."""
+    every = auto_interval(start, stop)
+    points = await cached_instant_series(
+        repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
     )
-    if not import_points and not export_points:
+    if not points:
         return []
+    return await asyncio.to_thread(_daily_profile_df, points, tz_name)
 
+
+def _weekday_profile_df(
+    import_points: list[EnergyPoint],
+    export_points: list[EnergyPoint],
+    tz_name: str,
+) -> list[WeekdayProfilePoint]:
+    """Consumo/exportación promedio por día de la semana, como puro cálculo
+    (Polars, CPU síncrono) — corre vía `asyncio.to_thread`."""
     # schema explícito: si uno de los dos lados viene vacío (ej. un mes sin
     # ninguna exportación), Polars no puede inferir el dtype de `time` desde
     # una lista vacía y el join siguiente falla por tipos incompatibles.
@@ -114,3 +105,30 @@ async def weekday_profile(
         )
         for row in grouped.iter_rows(named=True)
     ]
+
+
+async def weekday_profile(
+    repo: InfluxDataSource,
+    start: datetime,
+    stop: datetime,
+    device_id: str | None,
+    tz_name: str,
+) -> list[WeekdayProfilePoint]:
+    """Consumo/exportación promedio por día de la semana en el rango
+    solicitado. Agrupa por día de semana LOCAL (`tz_name`): para Bogotá
+    (detrás de UTC) el bucket diario ya alineado por `flux_window_offset`
+    cae en la misma fecha UTC, así que `.dt.weekday()` crudo coincide hoy —
+    pero eso es una coincidencia del signo del offset, no una garantía; una
+    zona adelantada a UTC sí correría el día. Se convierte siempre por
+    generalidad, no porque haya un bug activo hoy con `TIMEZONE=America/Bogota`."""
+    import_points, export_points = await asyncio.gather(
+        cached_energy_series(
+            repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, _DAY_INTERVAL, device_id
+        ),
+        cached_energy_series(
+            repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, _DAY_INTERVAL, device_id
+        ),
+    )
+    if not import_points and not export_points:
+        return []
+    return await asyncio.to_thread(_weekday_profile_df, import_points, export_points, tz_name)

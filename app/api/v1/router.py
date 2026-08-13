@@ -1,4 +1,13 @@
-"""Router agregado de /api/v1. Cada dominio registra aquí su router."""
+"""Router agregado de /api/v1. Cada dominio registra aquí su router.
+
+Decisión de arquitectura: la autenticación NO se aplica a nivel de router con
+`dependencies=[Depends(...)]`, sino por endpoint, declarando `fleet: CurrentFleet`
+en la firma de cada ruta. Es deliberado: cada endpoint dice explícitamente qué
+depende y con qué alcance, y el "recorte por cliente" viaja dentro del objeto
+(ScopedInfluxRepository) en vez de vivir en el registro de rutas. Cambiarlo a
+nivel router haría menos evidente qué necesita cada ruta y rompería los tests
+que inyectan la flota por endpoint.
+"""
 
 from fastapi import APIRouter
 

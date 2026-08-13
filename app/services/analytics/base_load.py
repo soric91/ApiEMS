@@ -7,6 +7,7 @@ carga (de noche, principalmente); se calcula igual sobre todo el rango
 solicitado, filtrando a muestras de importación.
 """
 
+import asyncio
 from datetime import datetime
 
 from app.models.variables import Variable
@@ -29,5 +30,6 @@ async def base_load(
     points = await cached_instant_series(
         repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
     )
-    _, importing = power_frames(points)
-    return base_load_result(start, stop, device_id, importing, percentile)
+    # Polars es CPU síncrono: se corre fuera del event loop.
+    _, importing = await asyncio.to_thread(power_frames, points)
+    return await asyncio.to_thread(base_load_result, start, stop, device_id, importing, percentile)

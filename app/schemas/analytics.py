@@ -59,7 +59,6 @@ class ComparePeriod(BaseModel):
     period_end: datetime
     consumption_kwh: float
     export_kwh: float
-    peak_import_w: float | None
 
 
 class CompareResult(BaseModel):

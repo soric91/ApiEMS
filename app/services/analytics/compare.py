@@ -1,4 +1,10 @@
-"""Comparación de dos periodos: consumo, exportación y demanda pico."""
+"""Comparación de dos periodos: consumo y exportación.
+
+A propósito SIN demanda pico: calcularla escaneaba la serie de potencia
+instantánea del rango entero (hasta 60 días en las tarjetas del panel) para
+un campo que ningún consumidor muestra. La comparación solo necesita los
+totales de energía, que salen de contadores (baratos y cacheados).
+"""
 
 import asyncio
 from datetime import datetime
@@ -6,24 +12,21 @@ from datetime import datetime
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.analytics import ComparePeriod, CompareResult
-from app.services.analytics.demand import max_demand
 from app.services.influx.cache import cached_energy_total
 
 
 async def _period_stats(
     repo: InfluxDataSource, start: datetime, stop: datetime, device_id: str | None
 ) -> ComparePeriod:
-    consumption, export, demand = await asyncio.gather(
+    consumption, export = await asyncio.gather(
         cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, device_id),
         cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, device_id),
-        max_demand(repo, start, stop, device_id),
     )
     return ComparePeriod(
         period_start=start,
         period_end=stop,
         consumption_kwh=consumption,
         export_kwh=export,
-        peak_import_w=demand.peak_power_w,
     )
 
 

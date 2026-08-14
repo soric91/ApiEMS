@@ -26,3 +26,10 @@ htmlcov/
 # Permisos de Claude Code en esta máquina. Son de quien usa la terminal, no
 # del proyecto.
 .claude/settings.local.json
+
+# Skills/tooling local del agente — no del proyecto
+.agents/
+.claude/
+
+# Documentos de trabajo (planes, notas) — no se versionan
+PLAN_RENDIMIENTO.md

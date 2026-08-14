@@ -43,7 +43,7 @@ RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 # Cuánto hacia atrás se mira para decidir si una variable "tiene datos" sale de
-# `VARIABLES_LOOKBACK_DAYS`. Un equipo apagado el fin de semana no debería
+# `VARIABLES_LOOKBACK_HOURS`. Un equipo apagado el fin de semana no debería
 # desaparecer del panel el lunes, y una ventana muy larga hace que esta consulta
 # —que recorre datos, no el índice— domine el costo del panel.
 
@@ -61,7 +61,7 @@ async def list_variables(
     El panel dibuja solo las que lo traen en `true`. Si la fase C no reportó
     nunca, no se dibuja su gráfica — en vez de mostrarla vacía.
     """
-    ventana = timedelta(days=settings.VARIABLES_LOOKBACK_DAYS)
+    ventana = timedelta(hours=settings.VARIABLES_LOOKBACK_HOURS)
     reportaron = set(await cached_field_keys(repo, ventana))
 
     disponibles = [

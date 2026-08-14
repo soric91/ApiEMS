@@ -169,11 +169,11 @@ class TestLaVentanaEsConfigurable:
         auth_headers: dict[str, str],
         monkeypatch: Any,
     ) -> None:
-        monkeypatch.setenv("VARIABLES_LOOKBACK_DAYS", "3")
+        monkeypatch.setenv("VARIABLES_LOOKBACK_HOURS", "3")
         get_settings.cache_clear()
         app.dependency_overrides[get_settings] = get_settings
 
         client.get(RUTA, headers=auth_headers)
 
-        assert fake_influx_repo.field_keys_lookback == timedelta(days=3)
+        assert fake_influx_repo.field_keys_lookback == timedelta(hours=3)
         get_settings.cache_clear()

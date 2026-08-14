@@ -44,11 +44,13 @@ class Settings(BaseSettings):
     #
     # `schema.fieldKeys` con predicado no lee el índice pese al nombre: por
     # debajo hace `range |> filter |> keys |> distinct`, o sea recorre los
-    # datos. Con esta ventana en 30 días es la consulta más cara del panel, y
-    # solo sirve para decidir qué variables ofrecer. Una semana alcanza: un
-    # medidor que no reporta hace siete días no está "con datos" en ningún
-    # sentido útil.
-    VARIABLES_LOOKBACK_DAYS: int = 7
+    # datos. La ventana decide el costo (es lineal) y solo sirve para marcar
+    # qué variables tienen `con_datos`. Un día (24h) alcanza: un medidor que no
+    # reporta hace más de 24h no está "con datos" en ningún sentido útil, y
+    # bajar de 7 días a 24h acelera ~7x la primera carga del panel. Menos de
+    # unas horas arriesga esconder variables ante un corte breve, y la caché de
+    # 1h lo hace pegajoso.
+    VARIABLES_LOOKBACK_HOURS: float = 24
 
     # La banda [p10, p90] por hora para detectar consumo anómalo. Más días dan
     # una banda más estable, pero recorrer noventa cuando la instalación lleva

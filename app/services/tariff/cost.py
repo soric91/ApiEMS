@@ -27,6 +27,7 @@ saber de dónde vinieron) — lo comparten `/costs/{day,week,month,year}`,
 la lógica ni hacer llamadas extra a InfluxDB donde los puntos ya existen.
 """
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from app.schemas.energy import EnergySummary
@@ -79,15 +80,33 @@ def _sum_by_month(points: list[EnergyPoint]) -> dict[str, float]:
     return totals
 
 
+@dataclass(frozen=True)
+class MonthlyTotals:
+    """Lo que sale de agregar el periodo mes a mes.
+
+    El reparto en tramos viaja acá y no se recalcula afuera: es el mismo que
+    produce el crédito, así que separarlo sería tener dos versiones de la misma
+    resta esperando a discrepar."""
+
+    consumption_cost: float
+    export_credit: float
+    tier1_kwh: float
+    tier2_kwh: float
+    tier1_credit: float
+    tier2_credit: float
+    months_used: set[str]
+    stale_months: set[str]
+
+
 def _totals_by_month(
     config: TariffConfig,
     consumption_points: list[EnergyPoint],
     export_points: list[EnergyPoint],
     period_start: datetime,
     period_end: datetime,
-) -> tuple[float, float, set[str], set[str]]:
-    """(consumption_cost, export_credit, months_used, stale_months) —
-    agregado por mes, sobre el total real importado/exportado ese mes.
+) -> MonthlyTotals:
+    """Costo, crédito y su reparto en tramos, agregado por mes sobre el total
+    real importado/exportado ese mes.
 
     Itera sobre TODOS los meses que el periodo toca (`_months_in_range`), no
     solo los que tienen puntos — un mes sin datos igual necesita marcarse
@@ -97,6 +116,10 @@ def _totals_by_month(
 
     consumption_cost = 0.0
     export_credit = 0.0
+    tier1_kwh_total = 0.0
+    tier2_kwh_total = 0.0
+    tier1_credit_total = 0.0
+    tier2_credit_total = 0.0
     months_used: set[str] = set()
     stale_months: set[str] = set()
 
@@ -114,13 +137,28 @@ def _totals_by_month(
         tier1_kwh = min(month_import, month_export)
         tier2_kwh = month_export - tier1_kwh
 
+        tier1_credit = tier1_kwh * rate.cu_cop_kwh
+        tier2_credit = tier2_kwh * rate.excedente_cop_kwh
         consumption_cost += month_import * rate.cu_cop_kwh
-        export_credit += tier1_kwh * rate.cu_cop_kwh + tier2_kwh * rate.excedente_cop_kwh
+        export_credit += tier1_credit + tier2_credit
+        tier1_kwh_total += tier1_kwh
+        tier2_kwh_total += tier2_kwh
+        tier1_credit_total += tier1_credit
+        tier2_credit_total += tier2_credit
         months_used.add(rate.month)
         if stale:
             stale_months.add(month)
 
-    return consumption_cost, export_credit, months_used, stale_months
+    return MonthlyTotals(
+        consumption_cost=consumption_cost,
+        export_credit=export_credit,
+        tier1_kwh=tier1_kwh_total,
+        tier2_kwh=tier2_kwh_total,
+        tier1_credit=tier1_credit_total,
+        tier2_credit=tier2_credit_total,
+        months_used=months_used,
+        stale_months=stale_months,
+    )
 
 
 def _series_by_bucket(
@@ -186,7 +224,7 @@ def compute_cost_from_points(
     consumption_total: float,
     export_total: float,
 ) -> CostBreakdown:
-    consumption_cost, export_credit, months_used, stale_months = _totals_by_month(
+    totales = _totals_by_month(
         config, consumption_points, export_points, period_start, period_end
     )
     series = _series_by_bucket(config, consumption_points, export_points)
@@ -197,11 +235,15 @@ def compute_cost_from_points(
         period_end=period_end,
         consumption_kwh=consumption_total,
         export_kwh=export_total,
-        consumption_cost_cop=round(consumption_cost, 2),
-        export_credit_cop=round(export_credit, 2),
-        net_cost_cop=round(consumption_cost - export_credit, 2),
-        months_used=sorted(months_used),
-        stale_months=sorted(stale_months),
+        consumption_cost_cop=round(totales.consumption_cost, 2),
+        export_credit_cop=round(totales.export_credit, 2),
+        net_cost_cop=round(totales.consumption_cost - totales.export_credit, 2),
+        export_tier1_kwh=round(totales.tier1_kwh, 2),
+        export_tier2_kwh=round(totales.tier2_kwh, 2),
+        export_tier1_credit_cop=round(totales.tier1_credit, 2),
+        export_tier2_credit_cop=round(totales.tier2_credit, 2),
+        months_used=sorted(totales.months_used),
+        stale_months=sorted(totales.stale_months),
         series=series,
     )
 

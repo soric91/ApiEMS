@@ -71,6 +71,16 @@ class CostBreakdown(BaseModel):
     consumption_cost_cop: float
     export_credit_cop: float
     net_cost_cop: float  # consumption_cost - export_credit
+    # El reparto del crédito por exportar, que hasta ahora se calculaba sin
+    # publicarse. Es la parte que más confunde de la factura: el tramo 1 (lo
+    # exportado hasta lo importado en el mismo mes) se paga al MISMO precio al
+    # que se compra, y solo el tramo 2 se paga al precio de excedente. Sin
+    # verlo separado, "exporté 200 kWh y me acreditaron poco" no tiene
+    # explicación en pantalla.
+    export_tier1_kwh: float = 0.0
+    export_tier2_kwh: float = 0.0
+    export_tier1_credit_cop: float = 0.0
+    export_tier2_credit_cop: float = 0.0
     months_used: list[str]
     stale_months: list[str] = Field(
         default_factory=lambda: [],

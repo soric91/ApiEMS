@@ -100,6 +100,68 @@ def test_export_beyond_import_splits_tier1_and_tier2() -> None:
     assert result.export_credit_cop == expected
 
 
+def test_tier_split_is_published_not_just_used() -> None:
+    """F3.4: el reparto en tramos ya se calculaba para el crédito; ahora sale
+    en la respuesta. Es la parte que más confunde de la factura — sin verla
+    separada, "exporté 150 kWh y me acreditaron poco" no tiene explicación."""
+    config = _config(JAN)
+    consumption = _summary(
+        [EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=120.0)],
+        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2026, 1, 31, tzinfo=UTC),
+    )
+    export = _summary(
+        [EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=150.0)],
+        consumption.period_start,
+        consumption.period_end,
+    )
+
+    result = compute_cost(config, "month", consumption, export, device_id="11")
+
+    assert result.export_tier1_kwh == 120.0
+    assert result.export_tier2_kwh == 30.0
+    assert result.export_tier1_credit_cop == round(120.0 * JAN.cu_cop_kwh, 2)
+    assert result.export_tier2_credit_cop == round(30.0 * JAN.excedente_cop_kwh, 2)
+    # Los dos tramos suman exactamente el crédito publicado: si divergieran,
+    # la cascada de la factura no cerraría contra su propio total.
+    assert (
+        round(result.export_tier1_credit_cop + result.export_tier2_credit_cop, 2)
+        == result.export_credit_cop
+    )
+
+
+def test_tier_split_sums_the_credit_across_months() -> None:
+    """Los tramos se resuelven por mes calendario: un rango de dos meses tiene
+    dos repartos distintos que igual tienen que sumar el crédito total."""
+    config = _config(JAN, FEB)
+    consumption = _summary(
+        [
+            EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=100.0),
+            EnergyPoint(time=datetime(2026, 2, 15, tzinfo=UTC), value=50.0),
+        ],
+        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2026, 2, 28, tzinfo=UTC),
+    )
+    export = _summary(
+        [
+            EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=180.0),
+            EnergyPoint(time=datetime(2026, 2, 15, tzinfo=UTC), value=20.0),
+        ],
+        consumption.period_start,
+        consumption.period_end,
+    )
+
+    result = compute_cost(config, "custom", consumption, export, device_id="11")
+
+    # Enero: 100 en tramo 1, 80 en tramo 2. Febrero: los 20 caben en tramo 1.
+    assert result.export_tier1_kwh == 120.0
+    assert result.export_tier2_kwh == 80.0
+    assert (
+        round(result.export_tier1_credit_cop + result.export_tier2_credit_cop, 2)
+        == result.export_credit_cop
+    )
+
+
 def test_stale_month_uses_most_recent_earlier_rate() -> None:
     """Marzo no tiene tarifa registrada: usa febrero (la más reciente
     anterior) y lo marca como stale — nunca lo oculta."""

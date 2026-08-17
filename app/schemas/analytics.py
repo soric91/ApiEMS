@@ -36,6 +36,39 @@ class SiteModeResult(BaseModel):
     source: Literal["crm", "detected"]
 
 
+class BenchmarkPeer(BaseModel):
+    """Una sede del grupo de comparación, con su consumo diario medio."""
+
+    device_id: str
+    name: str
+    site: str
+    kwh_per_day: float
+    is_self: bool
+
+
+class BenchmarkResult(BaseModel):
+    """Dónde queda esta sede frente a las OTRAS DEL MISMO CLIENTE.
+
+    No cruza clientes: comparar contra las sedes de otra empresa exigiría datos
+    que este token no autoriza a ver, aunque fuera solo para promediarlos.
+
+    `percentile` es qué porcentaje del grupo consume menos que esta sede (0 = la
+    que menos consume). Viene en `null` junto con la mediana cuando el grupo es
+    demasiado chico: con dos sedes, "estás por encima de la mediana" solo dice
+    "consumes más que la otra".
+    """
+
+    device_id: str
+    period_start: datetime
+    period_end: datetime
+    days: int
+    own_kwh_per_day: float | None
+    median_kwh_per_day: float | None
+    percentile: float | None
+    peers: list[BenchmarkPeer]
+    enough_peers: bool
+
+
 class DayArchetype(BaseModel):
     """Un "tipo de día" de la instalación.
 

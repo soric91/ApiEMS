@@ -23,6 +23,7 @@ from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.analytics import (
     AnalyticsSummary,
     BaseLoadTrendResult,
+    BenchmarkResult,
     CompareResult,
     CoverageResult,
     DayArchetypesResult,
@@ -39,6 +40,8 @@ from app.services.analytics.archetypes import DEFAULT_DAYS as DEFAULT_ARCHETYPE_
 from app.services.analytics.archetypes import day_archetypes
 from app.services.analytics.baseload import DEFAULT_PERCENTILE as DEFAULT_BASELOAD_PERCENTILE
 from app.services.analytics.baseload import baseload_trend
+from app.services.analytics.benchmark import DEFAULT_DAYS as DEFAULT_BENCHMARK_DAYS
+from app.services.analytics.benchmark import benchmark
 from app.services.analytics.compare import compare_periods
 from app.services.analytics.coverage import coverage
 from app.services.analytics.heatmap import HeatmapMetric, heatmap
@@ -100,6 +103,35 @@ def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | No
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get(
+    "/benchmark",
+    summary="Esta sede frente a las otras del mismo cliente",
+    response_model=ApiResponse[BenchmarkResult],
+)
+async def analytics_benchmark(
+    repo: RepoDep,
+    settings: SettingsDep,
+    fleet: CurrentFleet,
+    device_id: Annotated[str, Query(description="La sede que se quiere ubicar")],
+    days: Annotated[int, Query(gt=0, le=365)] = DEFAULT_BENCHMARK_DAYS,
+) -> ApiResponse[BenchmarkResult]:
+    """Dónde queda esta sede frente a las otras del MISMO cliente.
+
+    "¿Esta sede consume mucho?" no tiene respuesta absoluta —400 kWh al día son
+    poco para una planta y muchísimo para una oficina—, pero sí la tiene contra
+    las demás sedes del mismo cliente.
+
+    No cruza clientes a propósito: comparar contra las sedes de otra empresa
+    exigiría datos que este token no autoriza a ver, aunque fuera solo para
+    promediarlos. Solo entran sedes del mismo modo (con generación o de consumo
+    puro): una con solar importa estructuralmente menos y haría ver a las demás
+    como derrochadoras por no tener paneles.
+    """
+    return ApiResponse(
+        data=await benchmark(repo, fleet.devices, device_id, settings.TIMEZONE, days)
+    )
 
 
 @router.get(

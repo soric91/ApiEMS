@@ -36,6 +36,29 @@ class SiteModeResult(BaseModel):
     source: Literal["crm", "detected"]
 
 
+class HeatmapResult(BaseModel):
+    """Cuadrícula hora x día: `values[i][h]` es la casilla del día `dates[i]`
+    a la hora local `h` (0..23).
+
+    Un `null` es una hora SIN DATO, no un cero: pintar como "consumo cero" las
+    horas en que el gateway estuvo caído es justo el error que
+    `/analytics/coverage` existe para evitar.
+
+    `cost` es lo que costó la importación de esa hora, no el neto: el crédito
+    por exportar se reparte en dos tramos que se resuelven por mes calendario
+    (ver `services/tariff/cost.py`), y repartirlo hora a hora daría un número
+    que no suma a la factura.
+    """
+
+    device_id: str | None
+    period_start: datetime
+    period_end: datetime
+    metric: Literal["import", "export", "net", "cost"]
+    unit: str
+    dates: list[str]
+    values: list[list[float | None]]
+
+
 class CoveragePoint(BaseModel):
     """Cuánto dato llegó en una ventana. `ratio` 1.0 = completa."""
 

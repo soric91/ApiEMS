@@ -24,6 +24,7 @@ from app.schemas.analytics import (
     AnalyticsSummary,
     CompareResult,
     CoverageResult,
+    HeatmapResult,
     HourProfilePoint,
     ReactiveQuadrantsResult,
     SiteModeResult,
@@ -33,6 +34,7 @@ from app.schemas.common import ApiResponse
 from app.schemas.tariff import TariffConfig
 from app.services.analytics.compare import compare_periods
 from app.services.analytics.coverage import coverage
+from app.services.analytics.heatmap import HeatmapMetric, heatmap
 from app.services.analytics.profile import daily_profile, weekday_profile
 from app.services.analytics.reactive import reactive_quadrants
 from app.services.analytics.site_mode import declared_mode, detect_site_mode
@@ -80,6 +82,39 @@ def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | No
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get(
+    "/heatmap",
+    summary="Mapa de calor hora x día",
+    response_model=ApiResponse[HeatmapResult],
+)
+async def analytics_heatmap(
+    repo: RepoDep,
+    settings: SettingsDep,
+    tariff: TariffDep,
+    fleet: CurrentFleet,
+    from_: FromQuery = None,
+    to: ToQuery = None,
+    metric: HeatmapMetric = "import",
+    device_id: str | None = None,
+) -> ApiResponse[HeatmapResult]:
+    """La energía del rango reordenada en una cuadrícula de 24 horas x N días.
+
+    Es la vista donde saltan los patrones que una línea esconde: la hora en que
+    siempre se dispara el consumo, el fin de semana que se comporta distinto,
+    el día que se salió de lo normal.
+
+    `metric`: `import`/`export` (kWh de esa hora), `net` (importado menos
+    exportado) o `cost` (lo que costó la importación de esa hora, con la tarifa
+    del mes que corresponda).
+    """
+    bounds = _resolve_range(settings, from_, to)
+    return ApiResponse(
+        data=await heatmap(
+            repo, bounds.start, bounds.stop, device_id, metric, tariff, settings.TIMEZONE
+        )
+    )
 
 
 @router.get(

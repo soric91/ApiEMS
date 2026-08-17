@@ -27,6 +27,7 @@ from app.schemas.analytics import (
     CoverageResult,
     HeatmapResult,
     HourProfilePoint,
+    LoadDurationResult,
     ReactiveQuadrantsResult,
     SiteModeResult,
     WeekdayProfilePoint,
@@ -38,6 +39,8 @@ from app.services.analytics.baseload import baseload_trend
 from app.services.analytics.compare import compare_periods
 from app.services.analytics.coverage import coverage
 from app.services.analytics.heatmap import HeatmapMetric, heatmap
+from app.services.analytics.load_duration import DEFAULT_POINTS as DEFAULT_DURATION_POINTS
+from app.services.analytics.load_duration import load_duration
 from app.services.analytics.profile import daily_profile, weekday_profile
 from app.services.analytics.reactive import reactive_quadrants
 from app.services.analytics.site_mode import resolve_site_mode
@@ -94,6 +97,35 @@ def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | No
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get(
+    "/load-duration",
+    summary="Curva de duración de carga",
+    response_model=ApiResponse[LoadDurationResult],
+)
+async def analytics_load_duration(
+    repo: RepoDep,
+    settings: SettingsDep,
+    fleet: CurrentFleet,
+    from_: FromQuery = None,
+    to: ToQuery = None,
+    points: Annotated[int, Query(gt=1, le=1000)] = DEFAULT_DURATION_POINTS,
+    device_id: str | None = None,
+) -> ApiResponse[LoadDurationResult]:
+    """La potencia importada ordenada de mayor a menor contra el % del tiempo.
+
+    Contesta si el consumo es parejo o vive de picos: "el 5% del tiempo estás
+    por encima de 4,2 kW, y ese 5% explica el 22% de tu energía". Es lo que
+    decide si conviene atacar los picos o el consumo de fondo.
+
+    Se devuelven `points` muestras de la curva, no las miles de lecturas: el
+    dibujo no cambia y la respuesta no pesa.
+    """
+    bounds = _resolve_range(settings, from_, to)
+    return ApiResponse(
+        data=await load_duration(repo, bounds.start, bounds.stop, device_id, points)
+    )
 
 
 @router.get(

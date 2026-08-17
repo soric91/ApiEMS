@@ -36,6 +36,41 @@ class SiteModeResult(BaseModel):
     source: Literal["crm", "detected"]
 
 
+class LoadDurationPoint(BaseModel):
+    """Un punto de la curva: durante `time_fraction` del tiempo se estuvo por
+    encima de `power_w`."""
+
+    time_fraction: float
+    power_w: float
+
+
+class LoadDurationResult(BaseModel):
+    """Curva de duración de carga: la potencia importada ordenada de mayor a
+    menor contra el porcentaje del tiempo.
+
+    Contesta "¿mi consumo es parejo o vive de picos?": una curva que cae en
+    picada significa que unas pocas horas explican la mayor parte de la
+    energía. `top_energy_share` lo pone en un número — qué porción de la
+    energía se consume en el `top_fraction` del tiempo más alto.
+
+    Solo sobre muestras de importación: durante la exportación no hay demanda
+    que la red esté sirviendo, y los negativos vuelven la curva ilegible.
+    """
+
+    device_id: str | None
+    period_start: datetime
+    period_end: datetime
+    sample_seconds: int
+    points: list[LoadDurationPoint]
+    p1_w: float | None
+    p5_w: float | None
+    p50_w: float | None
+    p95_w: float | None
+    top_fraction: float
+    top_energy_share: float | None
+    sample_count: int
+
+
 class BaseLoadTrendPoint(BaseModel):
     """La carga base de un día local."""
 

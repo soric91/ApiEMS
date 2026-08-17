@@ -36,6 +36,47 @@ class SiteModeResult(BaseModel):
     source: Literal["crm", "detected"]
 
 
+class DayArchetype(BaseModel):
+    """Un "tipo de día" de la instalación.
+
+    `hourly_share` es la curva media del grupo como FRACCIÓN de la energía del
+    día en cada hora (suma 1): así se compara la forma del consumo sin que la
+    magnitud del día mande. `avg_kwh` es el tamaño típico de esos días.
+    """
+
+    label: str
+    day_count: int
+    avg_kwh: float
+    hourly_share: list[float]
+    weekdays: list[str]
+
+
+class DayAssignment(BaseModel):
+    """A qué arquetipo pertenece un día concreto, para pintar el calendario."""
+
+    date: str
+    archetype: int
+    kwh: float
+
+
+class DayArchetypesResult(BaseModel):
+    """Los tipos de día que esta instalación realmente tiene.
+
+    `archetypes` vacío con `days_analyzed > 0` significa que los grupos no se
+    separaron lo suficiente (`silhouette` por debajo del mínimo): esta
+    instalación consume igual todos los días, y partirla en grupos sería
+    dibujar una frontera donde no hay ninguna.
+    """
+
+    device_id: str | None
+    period_start: datetime
+    period_end: datetime
+    days_analyzed: int
+    silhouette: float | None
+    archetypes: list[DayArchetype]
+    assignments: list[DayAssignment]
+
+
 class LoadDurationPoint(BaseModel):
     """Un punto de la curva: durante `time_fraction` del tiempo se estuvo por
     encima de `power_w`."""

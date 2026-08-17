@@ -25,6 +25,7 @@ from app.schemas.analytics import (
     BaseLoadTrendResult,
     CompareResult,
     CoverageResult,
+    DayArchetypesResult,
     HeatmapResult,
     HourProfilePoint,
     LoadDurationResult,
@@ -34,6 +35,8 @@ from app.schemas.analytics import (
 )
 from app.schemas.common import ApiResponse
 from app.schemas.tariff import TariffConfig
+from app.services.analytics.archetypes import DEFAULT_DAYS as DEFAULT_ARCHETYPE_DAYS
+from app.services.analytics.archetypes import day_archetypes
 from app.services.analytics.baseload import DEFAULT_PERCENTILE as DEFAULT_BASELOAD_PERCENTILE
 from app.services.analytics.baseload import baseload_trend
 from app.services.analytics.compare import compare_periods
@@ -97,6 +100,34 @@ def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | No
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get(
+    "/day-archetypes",
+    summary="Los tipos de día de la instalación",
+    response_model=ApiResponse[DayArchetypesResult],
+)
+async def analytics_day_archetypes(
+    repo: RepoDep,
+    settings: SettingsDep,
+    fleet: CurrentFleet,
+    days: Annotated[int, Query(gt=0, le=365)] = DEFAULT_ARCHETYPE_DAYS,
+    device_id: str | None = None,
+) -> ApiResponse[DayArchetypesResult]:
+    """Agrupa los días por la FORMA de su consumo horario.
+
+    El perfil horario promedio mezcla el laboral, el domingo y el día del
+    asado en una curva que no describe a ninguno. Acá cada tipo de día se
+    muestra por separado — "tienes tres tipos de día" es una frase que el
+    cliente reconoce en su propia vida.
+
+    Si los grupos no se separan lo suficiente, `archetypes` viene vacío con la
+    silueta obtenida: esta instalación consume igual todos los días y decir lo
+    contrario sería inventar una frontera.
+    """
+    return ApiResponse(
+        data=await day_archetypes(repo, device_id, settings.TIMEZONE, days)
+    )
 
 
 @router.get(

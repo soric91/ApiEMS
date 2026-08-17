@@ -20,6 +20,9 @@ class FakeInfluxRepository:
         self.energy_series_points: list[EnergyPoint] = []
         self.instant_series_points: list[TimeSeriesPoint] = []
         self.instant_reduce_value: float | None = 100.0
+        # Override por agregación: para distinguir min/max/mean/last en las
+        # reducciones escalares (/history/stats).
+        self.instant_reduce_by_aggregation: dict[Aggregation, float | None] = {}
         self.calls: list[tuple[object, ...]] = []
         # Overrides opcionales por variable/contador, para tests que
         # necesitan distinguir p. ej. importación vs exportación.
@@ -175,7 +178,7 @@ class FakeInfluxRepository:
                 tuple(devices or ()),
             )
         )
-        return self.instant_reduce_value
+        return self.instant_reduce_by_aggregation.get(aggregation, self.instant_reduce_value)
 
     async def list_device_ids(self, lookback: Any = None) -> list[str]:
         return ["11"]

@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from app.models.variables import Aggregation
 from app.schemas.influx import EnergyPoint, TimeSeriesPoint
 from tests.fakes import FakeInfluxRepository
 
@@ -68,6 +69,68 @@ def test_history_too_many_points_rejected(client: TestClient, auth_headers: dict
         headers=auth_headers,
     )
     assert response.status_code == 400
+
+
+def test_history_stats_reduces_over_raw_data(
+    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
+) -> None:
+    """F0.2: los estadísticos salen de reducciones de InfluxDB sobre los datos
+    crudos, no de los puntos ya agregados por ventana. Una serie que promedia
+    520 W puede tener un pico real de 10 kW, y es ese el que debe salir."""
+    fake_influx_repo.instant_reduce_by_aggregation = {
+        Aggregation.MIN: 10.0,
+        Aggregation.MAX: 10_000.0,
+        Aggregation.MEAN: 520.0,
+        Aggregation.LAST: 480.0,
+    }
+
+    response = client.get(
+        "/api/v1/history/stats",
+        params={"variable": "TotW", "from": FROM, "to": TO},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["min"] == 10.0
+    assert body["max"] == 10_000.0
+    assert body["mean"] == 520.0
+    assert body["last"] == 480.0
+    aggregations = sorted(
+        str(call[2]) for call in fake_influx_repo.calls if call[0] == "instant_reduce"
+    )
+    assert aggregations == ["last", "max", "mean", "min"]
+
+
+def test_history_stats_rejects_cumulative_counter(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Un contador monótono no admite mean/max/min — solo difference()/last()."""
+    response = client.get(
+        "/api/v1/history/stats",
+        params={"variable": "TotWh_import", "from": FROM, "to": TO},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert "acumulativo" in response.json()["message"]
+
+
+def test_history_stats_invalid_range_rejected(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get(
+        "/api/v1/history/stats",
+        params={"variable": "TotW", "from": TO, "to": FROM},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+
+
+def test_history_stats_requires_auth(client: TestClient) -> None:
+    response = client.get(
+        "/api/v1/history/stats", params={"variable": "TotW", "from": FROM, "to": TO}
+    )
+    assert response.status_code == 401
 
 
 def test_history_downsample_computes_interval(

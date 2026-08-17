@@ -4,6 +4,7 @@
 /history/downsample  → serie con interval calculado para no exceder target_points.
 """
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -14,7 +15,7 @@ from app.dependencies.influx import get_influx_repository
 from app.models.variables import Aggregation, Variable, is_cumulative
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.common import ApiResponse
-from app.schemas.history import HistoryResponse
+from app.schemas.history import HistoryResponse, HistoryStats
 from app.schemas.influx import TimeSeriesPoint
 from app.services.influx.cache import cached_energy_series, cached_instant_series
 
@@ -115,6 +116,62 @@ async def history(
     _check_point_budget(from_, to, interval_seconds)
     return ApiResponse(
         data=await _series(repo, variable, from_, to, interval_seconds, aggregation, device_id)
+    )
+
+
+@router.get(
+    "/stats",
+    summary="Mínimo, máximo, promedio y último valor del rango",
+    response_model=ApiResponse[HistoryStats],
+    responses={400: {"description": "Rango inválido o variable acumulativa"}},
+)
+async def history_stats(
+    repo: RepoDep,
+    fleet: CurrentFleet,
+    variable: Variable,
+    from_: FromQuery,
+    to: ToQuery,
+    device_id: str | None = None,
+) -> ApiResponse[HistoryStats]:
+    """Reducciones EXACTAS sobre los datos crudos del rango.
+
+    Lo que devuelve `/history` está agregado por ventana, así que sacar el
+    máximo de esos puntos da el máximo de unos promedios, no el pico real (con
+    ventanas de 24 h, el error es de varias veces). Acá cada estadístico lo
+    resuelve InfluxDB sobre las muestras crudas, sin depender del bucketing.
+
+    Cuatro reducciones escalares en paralelo: devuelven un número cada una, no
+    una serie. Es una pantalla exploratoria (no está en la carga del panel),
+    por eso no va cacheado, igual que `/history`.
+
+    Solo variables instantáneas: un contador acumulativo no admite mean/max/min
+    (ver `app/models/variables.py`); para energía por ventana, `/history` ya
+    aplica `difference()`.
+    """
+    _validate_range(from_, to)
+    if is_cumulative(variable):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"'{variable}' es un contador acumulativo: no admite mean/max/min. "
+            "Usa /history, que aplica difference() por ventana.",
+        )
+    minimum, maximum, mean, last = await asyncio.gather(
+        repo.instant_reduce(variable, from_, to, Aggregation.MIN, device_id),
+        repo.instant_reduce(variable, from_, to, Aggregation.MAX, device_id),
+        repo.instant_reduce(variable, from_, to, Aggregation.MEAN, device_id),
+        repo.instant_reduce(variable, from_, to, Aggregation.LAST, device_id),
+    )
+    return ApiResponse(
+        data=HistoryStats(
+            variable=variable,
+            device_id=device_id,
+            period_start=from_,
+            period_end=to,
+            min=minimum,
+            max=maximum,
+            mean=mean,
+            last=last,
+        )
     )
 
 

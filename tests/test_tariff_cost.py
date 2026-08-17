@@ -162,6 +162,81 @@ def test_tier_split_sums_the_credit_across_months() -> None:
     )
 
 
+def test_tier1_never_exceeds_the_reported_import() -> None:
+    """El caso real que apareció en un informe: 139.93 kWh en el tramo 1 con
+    139.61 kWh importados.
+
+    Los puntos de la serie salen de un `difference()` por ventana y el total de
+    uno sobre el rango entero; no coinciden al decimal. Si los tramos se
+    calculan con una fuente y el total se muestra con la otra, el informe deja
+    de cuadrar consigo mismo."""
+    config = _config(JAN)
+    # La serie suma 139.93 pero el total real del rango es 139.61.
+    consumption = EnergySummary(
+        period="month",
+        device_id="11",
+        period_start=datetime(2026, 1, 1, tzinfo=UTC),
+        period_end=datetime(2026, 1, 31, tzinfo=UTC),
+        total_kwh=139.61,
+        series=[
+            EnergyPoint(time=datetime(2026, 1, 10, tzinfo=UTC), value=70.0),
+            EnergyPoint(time=datetime(2026, 1, 20, tzinfo=UTC), value=69.93),
+        ],
+    )
+    export = EnergySummary(
+        period="month",
+        device_id="11",
+        period_start=consumption.period_start,
+        period_end=consumption.period_end,
+        total_kwh=144.13,
+        series=[EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=144.4)],
+    )
+
+    result = compute_cost(config, "month", consumption, export, device_id="11")
+
+    assert result.export_tier1_kwh <= result.consumption_kwh
+    assert result.export_tier1_kwh == 139.61
+    # Los dos tramos siguen sumando exactamente lo exportado que se publica.
+    assert round(result.export_tier1_kwh + result.export_tier2_kwh, 2) == result.export_kwh
+
+
+def test_tier_split_keeps_month_proportions_across_months() -> None:
+    """Con varios meses, el ajuste conserva el reparto entre ellos: es la única
+    fuente que sabe qué mes consumió qué, y cada mes tiene su propia tarifa."""
+    config = _config(JAN, FEB)
+    consumption = EnergySummary(
+        period="month",
+        device_id="11",
+        period_start=datetime(2026, 1, 1, tzinfo=UTC),
+        period_end=datetime(2026, 2, 28, tzinfo=UTC),
+        total_kwh=150.0,  # la serie suma 152, el total manda
+        series=[
+            EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=101.0),
+            EnergyPoint(time=datetime(2026, 2, 15, tzinfo=UTC), value=51.0),
+        ],
+    )
+    export = EnergySummary(
+        period="month",
+        device_id="11",
+        period_start=consumption.period_start,
+        period_end=consumption.period_end,
+        total_kwh=40.0,
+        series=[
+            EnergyPoint(time=datetime(2026, 1, 15, tzinfo=UTC), value=30.0),
+            EnergyPoint(time=datetime(2026, 2, 15, tzinfo=UTC), value=10.0),
+        ],
+    )
+
+    result = compute_cost(config, "custom", consumption, export, device_id="11")
+
+    # Todo lo exportado cabe en el tramo 1 de su mes (cada mes importó más de
+    # lo que exportó), así que el crédito usa el precio de compra de cada mes.
+    assert result.export_tier2_kwh == 0.0
+    assert round(result.export_tier1_kwh, 2) == 40.0
+    esperado = round(30.0 * JAN.cu_cop_kwh + 10.0 * FEB.cu_cop_kwh, 2)
+    assert result.export_tier1_credit_cop == esperado
+
+
 def test_stale_month_uses_most_recent_earlier_rate() -> None:
     """Marzo no tiene tarifa registrada: usa febrero (la más reciente
     anterior) y lo marca como stale — nunca lo oculta."""

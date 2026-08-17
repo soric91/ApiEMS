@@ -98,12 +98,34 @@ class MonthlyTotals:
     stale_months: set[str]
 
 
+def _reparto_mensual(points: list[EnergyPoint], total: float) -> dict[str, float]:
+    """La energía de cada mes, ajustada para que sume exactamente `total`.
+
+    Los puntos de la serie salen de un `difference()` POR VENTANA y el total de
+    un `difference()` sobre el rango entero: no coinciden al decimal, porque
+    los bordes de ventana reparten distinto. La diferencia es de milésimas,
+    pero convertía el informe en algo que no cuadra consigo mismo — llegó a
+    publicar 139.93 kWh en el tramo 1 con 139.61 kWh importados, y el tramo 1
+    por definición no puede superar lo importado.
+
+    El reparto entre meses se respeta (es la única fuente que lo sabe) y la
+    escala la fija el total, que es la cifra que además se muestra."""
+    por_mes = _sum_by_month(points)
+    suma = sum(por_mes.values())
+    if suma <= 0 or total <= 0:
+        return por_mes
+    factor = total / suma
+    return {mes: valor * factor for mes, valor in por_mes.items()}
+
+
 def _totals_by_month(
     config: TariffConfig,
     consumption_points: list[EnergyPoint],
     export_points: list[EnergyPoint],
     period_start: datetime,
     period_end: datetime,
+    consumption_total: float,
+    export_total: float,
 ) -> MonthlyTotals:
     """Costo, crédito y su reparto en tramos, agregado por mes sobre el total
     real importado/exportado ese mes.
@@ -111,8 +133,8 @@ def _totals_by_month(
     Itera sobre TODOS los meses que el periodo toca (`_months_in_range`), no
     solo los que tienen puntos — un mes sin datos igual necesita marcarse
     `stale_months` si no hay tarifa para él."""
-    import_by_month = _sum_by_month(consumption_points)
-    export_by_month = _sum_by_month(export_points)
+    import_by_month = _reparto_mensual(consumption_points, consumption_total)
+    export_by_month = _reparto_mensual(export_points, export_total)
 
     consumption_cost = 0.0
     export_credit = 0.0
@@ -225,7 +247,13 @@ def compute_cost_from_points(
     export_total: float,
 ) -> CostBreakdown:
     totales = _totals_by_month(
-        config, consumption_points, export_points, period_start, period_end
+        config,
+        consumption_points,
+        export_points,
+        period_start,
+        period_end,
+        consumption_total,
+        export_total,
     )
     series = _series_by_bucket(config, consumption_points, export_points)
     return CostBreakdown(

@@ -80,6 +80,22 @@ def _declaraciones(fleet: ClientFleet, device_id: str | None) -> list[bool | Non
     ]
 
 
+def _capacidad_declarada(fleet: ClientFleet, device_id: str | None) -> float | None:
+    """Los kWp declarados, si TODAS las sedes consultadas coinciden.
+
+    Sin `device_id` la consulta puede abarcar varias sedes: sumar sus
+    capacidades daría un número que no describe a ninguna, y elegir una sería
+    arbitrario."""
+    capacidades = {
+        device.capacidad_kwp
+        for device in fleet.devices
+        if device_id is None or device.id == device_id
+    }
+    if len(capacidades) != 1:
+        return None
+    return capacidades.pop()
+
+
 def _reading_interval(fleet: ClientFleet, device_id: str | None) -> int | None:
     """Cada cuánto publica el equipo consultado, según el CRM.
 
@@ -327,7 +343,14 @@ async def analytics_site_mode(
     intradía).
     """
     mode, source = await resolve_site_mode(repo, _declaraciones(fleet, device_id), device_id)
-    return ApiResponse(data=SiteModeResult(device_id=device_id, mode=mode, source=source))
+    return ApiResponse(
+        data=SiteModeResult(
+            device_id=device_id,
+            mode=mode,
+            source=source,
+            capacity_kwp=_capacidad_declarada(fleet, device_id),
+        )
+    )
 
 
 @router.get(

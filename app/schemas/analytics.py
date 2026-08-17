@@ -34,6 +34,9 @@ class SiteModeResult(BaseModel):
     device_id: str | None
     mode: SiteMode
     source: Literal["crm", "detected"]
+    # Potencia instalada declarada en el CRM, si la hay. Solo informativa: se
+    # muestra junto al modo y ningún cálculo la usa.
+    capacity_kwp: float | None = None
 
 
 class BenchmarkPeer(BaseModel):

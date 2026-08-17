@@ -69,6 +69,10 @@ class FleetDevice:
     # energía exportada (ver `services/analytics/site_mode.py`). No se asume
     # `False`, que apagaría la exportación en una sede que sí tiene solar.
     tiene_generacion: bool | None = None
+    # Potencia instalada del arreglo (kWp), si la sede la declaró. Informativa:
+    # el panel la muestra junto al modo, y ningún cálculo depende de ella —un
+    # número mal cargado no puede torcer una cifra de consumo.
+    capacidad_kwp: float | None = None
     # Cada cuánto publica el gateway que lee este equipo, según el CRM. Es la
     # referencia de cuántas muestras DEBERÍA haber en una ventana, o sea de la
     # cobertura de datos. `None` si el CRM no lo trae: ahí la cobertura se
@@ -120,6 +124,20 @@ def _entero(valor: object) -> int | None:
     return valor if isinstance(valor, int) and not isinstance(valor, bool) else None
 
 
+def _decimal(valor: object) -> float | None:
+    """El CRM manda los decimales como texto (`"5.50"`), igual que las tarifas:
+    se convierte acá y lo que no sea un número queda en `None` en vez de
+    reventar el árbol entero por un campo informativo."""
+    if isinstance(valor, int | float) and not isinstance(valor, bool):
+        return float(valor)
+    if isinstance(valor, str):
+        try:
+            return float(valor)
+        except ValueError:
+            return None
+    return None
+
+
 def _booleano(valor: object) -> bool | None:
     """`None` cuando el CRM no lo trae o lo trae en otra forma.
 
@@ -169,6 +187,7 @@ def walk_devices(
                             gateway=str(gateway.get("numero_serie") or "Sin gateway"),
                             gateway_en_linea=gateway.get("estado") == "online",
                             tiene_generacion=_booleano(site.get("tiene_generacion")),
+                            capacidad_kwp=_decimal(site.get("capacidad_kwp")),
                             intervalo_lectura_segundos=_entero(
                                 gateway.get("intervalo_lectura_segundos")
                             ),

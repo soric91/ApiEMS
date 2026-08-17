@@ -29,7 +29,9 @@ def _sin_cache() -> None:  # pyright: ignore[reportUnusedFunction]
     clear_all_caches()
 
 
-def _fleet_con(declaracion: bool | None, fleet: ClientFleet) -> ClientFleet:
+def _fleet_con(
+    declaracion: bool | None, fleet: ClientFleet, capacidad: float | None = None
+) -> ClientFleet:
     device = FleetDevice(
         id=TEST_DEVICE_ID,
         nombre="Medidor de prueba",
@@ -40,6 +42,7 @@ def _fleet_con(declaracion: bool | None, fleet: ClientFleet) -> ClientFleet:
         gateway="GW-0001",
         gateway_en_linea=True,
         tiene_generacion=declaracion,
+        capacidad_kwp=capacidad,
     )
     return ClientFleet(
         client_id=TEST_CLIENT_ID,
@@ -86,6 +89,7 @@ class TestLoDeclaradoEnElCrm:
             "device_id": None,
             "mode": "generacion",
             "source": "crm",
+            "capacity_kwp": None,
         }
 
 
@@ -143,6 +147,96 @@ class TestLaDeclaracionDeLaFlota:
     def test_todas_de_acuerdo_deciden(self) -> None:
         assert declared_mode([True, True, None]) == "generacion"
         assert declared_mode([False, None]) == "consumo"
+
+
+class TestLaCapacidadInstalada:
+    def test_se_publica_junto_al_modo(
+        self,
+        app: FastAPI,
+        client: TestClient,
+        fleet: ClientFleet,
+        auth_headers: dict[str, str],
+    ) -> None:
+        """El panel muestra las dos juntas: "generación propia · 5,5 kWp" dice
+        mucho más que el booleano solo."""
+        app.state.fleet_directory = FakeFleetDirectory(_fleet_con(True, fleet, capacidad=5.5))
+
+        response = client.get("/api/v1/analytics/site-mode", headers=auth_headers)
+
+        assert response.json()["data"]["capacity_kwp"] == 5.5
+
+    def test_sin_declarar_no_se_inventa(
+        self,
+        app: FastAPI,
+        client: TestClient,
+        fleet: ClientFleet,
+        auth_headers: dict[str, str],
+    ) -> None:
+        app.state.fleet_directory = FakeFleetDirectory(_fleet_con(True, fleet))
+
+        response = client.get("/api/v1/analytics/site-mode", headers=auth_headers)
+
+        assert response.json()["data"]["capacity_kwp"] is None
+
+    def test_el_decimal_llega_como_texto_desde_el_crm(self) -> None:
+        """El CRM serializa los decimales como string, igual que las tarifas."""
+        payload = {
+            "items": [
+                {
+                    "puede_ver_consumo": True,
+                    "sites": [
+                        {
+                            "id": "sede-1",
+                            "nombre": "Planta",
+                            "tiene_generacion": True,
+                            "capacidad_kwp": "5.50",
+                            "gateways": [
+                                {
+                                    "id": "gw-1",
+                                    "numero_serie": "GW-0001",
+                                    "estado": "online",
+                                    "equipment": [{"id": "eq-1", "nombre_dispositivo": "M1"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        devices, _, _ = walk_devices(payload)
+
+        assert devices[0].capacidad_kwp == 5.5
+
+    def test_un_valor_ilegible_no_tumba_el_arbol(self) -> None:
+        """Es un campo informativo: si llega mal, se ignora en vez de dejar al
+        cliente sin inventario."""
+        payload = {
+            "items": [
+                {
+                    "puede_ver_consumo": True,
+                    "sites": [
+                        {
+                            "id": "sede-1",
+                            "nombre": "Planta",
+                            "capacidad_kwp": "cinco",
+                            "gateways": [
+                                {
+                                    "id": "gw-1",
+                                    "numero_serie": "GW-0001",
+                                    "estado": "online",
+                                    "equipment": [{"id": "eq-1", "nombre_dispositivo": "M1"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+
+        devices, _, _ = walk_devices(payload)
+
+        assert devices[0].capacidad_kwp is None
 
 
 class TestLoQueLlegaDelCrm:

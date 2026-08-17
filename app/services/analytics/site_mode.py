@@ -23,6 +23,7 @@ panel, y la consulta —un total de contador— no debería repetirse por vista.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from app.core.cache import cached
 from app.models.variables import Variable
@@ -53,6 +54,25 @@ async def detect_site_mode(
         repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, device_id
     )
     return "generacion" if exported > DETECTION_THRESHOLD_KWH else "consumo"
+
+
+async def resolve_site_mode(
+    repo: InfluxDataSource,
+    declarations: list[bool | None],
+    device_id: str | None,
+) -> tuple[SiteMode, Literal["crm", "detected"]]:
+    """El modo y de dónde salió: lo declarado en el CRM manda, y si nadie lo
+    declaró se detecta por la energía exportada.
+
+    Vive acá y no en el endpoint porque lo necesitan varios cálculos —la carga
+    base cambia de ventana según el modo, y el panel lo pregunta directo—: dos
+    resoluciones distintas del mismo modo serían dos respuestas distintas para
+    la misma sede.
+    """
+    declarado = declared_mode(declarations)
+    if declarado is not None:
+        return declarado, "crm"
+    return await detect_site_mode(repo, device_id), "detected"
 
 
 def declared_mode(declarations: list[bool | None]) -> SiteMode | None:

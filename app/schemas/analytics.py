@@ -36,6 +36,42 @@ class SiteModeResult(BaseModel):
     source: Literal["crm", "detected"]
 
 
+class BaseLoadTrendPoint(BaseModel):
+    """La carga base de un día local."""
+
+    date: str
+    base_load_w: float
+    sample_count: int
+
+
+class BaseLoadTrendResult(BaseModel):
+    """La carga base día a día, su tendencia y lo que cuesta al mes.
+
+    `window` dice sobre qué horas se midió: `dia` (sede sin generación: todo
+    lo que pasa por el medidor es consumo) o `noche` (con generación, de día
+    la fotovoltaica tapa el consumo real y el percentil daría un negativo).
+
+    `trend_delta_w` es la mediana de los últimos 7 días menos la de los 7
+    anteriores: positivo y grande significa que algo se quedó encendido.
+
+    `share_of_import` compara la carga base contra lo importado en las MISMAS
+    horas que se midieron — estirar el piso nocturno a 24 h para compararlo
+    con el total del rango exageraría la porción.
+    """
+
+    device_id: str | None
+    period_start: datetime
+    period_end: datetime
+    percentile: float
+    window: Literal["dia", "noche"]
+    points: list[BaseLoadTrendPoint]
+    current_w: float | None
+    trend_delta_w: float | None
+    monthly_kwh: float | None
+    monthly_cost_cop: float | None
+    share_of_import: float | None
+
+
 class HeatmapResult(BaseModel):
     """Cuadrícula hora x día: `values[i][h]` es la casilla del día `dates[i]`
     a la hora local `h` (0..23).

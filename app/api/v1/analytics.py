@@ -22,6 +22,7 @@ from app.repositories.influx import EnergyRecord
 from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.analytics import (
     AnalyticsSummary,
+    BaseLoadTrendResult,
     CompareResult,
     CoverageResult,
     HeatmapResult,
@@ -32,12 +33,14 @@ from app.schemas.analytics import (
 )
 from app.schemas.common import ApiResponse
 from app.schemas.tariff import TariffConfig
+from app.services.analytics.baseload import DEFAULT_PERCENTILE as DEFAULT_BASELOAD_PERCENTILE
+from app.services.analytics.baseload import baseload_trend
 from app.services.analytics.compare import compare_periods
 from app.services.analytics.coverage import coverage
 from app.services.analytics.heatmap import HeatmapMetric, heatmap
 from app.services.analytics.profile import daily_profile, weekday_profile
 from app.services.analytics.reactive import reactive_quadrants
-from app.services.analytics.site_mode import declared_mode, detect_site_mode
+from app.services.analytics.site_mode import resolve_site_mode
 from app.services.analytics.summary import analytics_summary
 from app.services.crm.fleet import ClientFleet
 from app.services.periods import PeriodBounds, resolve_period
@@ -57,6 +60,15 @@ FromQuery = Annotated[
     datetime | None, Query(alias="from", description="Inicio del rango (UTC). Por defecto: hoy.")
 ]
 ToQuery = Annotated[datetime | None, Query(description="Fin del rango (UTC). Por defecto: ahora.")]
+
+
+def _declaraciones(fleet: ClientFleet, device_id: str | None) -> list[bool | None]:
+    """Lo que el CRM declara sobre la generación de las sedes consultadas."""
+    return [
+        device.tiene_generacion
+        for device in fleet.devices
+        if device_id is None or device.id == device_id
+    ]
 
 
 def _reading_interval(fleet: ClientFleet, device_id: str | None) -> int | None:
@@ -82,6 +94,46 @@ def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | No
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get(
+    "/baseload-trend",
+    summary="Carga base día a día y lo que cuesta al mes",
+    response_model=ApiResponse[BaseLoadTrendResult],
+)
+async def analytics_baseload_trend(
+    repo: RepoDep,
+    settings: SettingsDep,
+    tariff: TariffDep,
+    fleet: CurrentFleet,
+    from_: FromQuery = None,
+    to: ToQuery = None,
+    percentile: Annotated[float, Query(gt=0, lt=1)] = DEFAULT_BASELOAD_PERCENTILE,
+    device_id: str | None = None,
+) -> ApiResponse[BaseLoadTrendResult]:
+    """El consumo de fondo que nunca baja, su tendencia y su costo mensual.
+
+    Es la cifra que más veces se traduce en dinero sin cambiar hábitos: 180 W
+    constantes son ~130 kWh al mes que se pagan aunque no haya nadie.
+
+    En una sede sin generación se mide sobre el día completo; con generación,
+    solo en la ventana nocturna — de día el medidor ve el balance neto y la
+    fotovoltaica tapa el consumo real.
+    """
+    bounds = _resolve_range(settings, from_, to)
+    mode, _ = await resolve_site_mode(repo, _declaraciones(fleet, device_id), device_id)
+    return ApiResponse(
+        data=await baseload_trend(
+            repo,
+            bounds.start,
+            bounds.stop,
+            device_id,
+            settings.TIMEZONE,
+            mode,
+            tariff,
+            percentile,
+        )
+    )
 
 
 @router.get(
@@ -179,18 +231,8 @@ async def analytics_site_mode(
     exportada del último mes (cacheado 24 h: una sede no cambia de modo
     intradía).
     """
-    declaraciones = [
-        device.tiene_generacion
-        for device in fleet.devices
-        if device_id is None or device.id == device_id
-    ]
-    declarado = declared_mode(declaraciones)
-    if declarado is not None:
-        return ApiResponse(data=SiteModeResult(device_id=device_id, mode=declarado, source="crm"))
-    detectado = await detect_site_mode(repo, device_id)
-    return ApiResponse(
-        data=SiteModeResult(device_id=device_id, mode=detectado, source="detected")
-    )
+    mode, source = await resolve_site_mode(repo, _declaraciones(fleet, device_id), device_id)
+    return ApiResponse(data=SiteModeResult(device_id=device_id, mode=mode, source=source))
 
 
 @router.get(

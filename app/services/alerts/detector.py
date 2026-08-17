@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from app.core.config import Settings
 from app.models.variables import Variable
 from app.repositories.influx import InfluxDataSource
-from app.schemas.alerts import Alert
+from app.schemas.alerts import Alert, BandStats
 from app.schemas.mqtt import DeviceReading
 from app.services.analytics.anomaly import (
     classify,
@@ -84,6 +84,40 @@ async def check_hourly(
     )
 
 
+def daily_alert(
+    device_id: str | None,
+    day_start: datetime,
+    weekday: int,
+    total: float,
+    band: BandStats,
+) -> Alert | None:
+    """La alerta de UN día completo contra la banda de su día de semana.
+
+    Pública y separada de quién trae los datos: la usan tanto la evaluación de
+    ayer (`check_daily_total`) como el historial, que recorre un rango entero.
+    Tenerla en un solo sitio es lo que hace que el panel y el historial digan
+    la MISMA frase sobre el mismo día."""
+    severity = classify(total, band)
+    if severity is None:
+        return None
+
+    return Alert(
+        kind="daily_total",
+        severity=severity,
+        device_id=device_id,
+        variable=Variable.POWER_ACTIVE_TOTAL_POS.value,
+        value=round(total, 2),
+        expected_low=band.p10,
+        expected_high=band.p90,
+        bucket=weekday,
+        timestamp=day_start,
+        message=(
+            f"Consumo del {_WEEKDAY_NAMES[weekday]} inusual: {total:.2f} kWh "
+            f"(lo típico es entre {band.p10:.2f} y {band.p90:.2f} kWh)"
+        ),
+    )
+
+
 async def check_daily_total(
     repo: InfluxDataSource,
     settings: Settings,
@@ -105,25 +139,7 @@ async def check_daily_total(
     total = await repo.energy_total(
         Variable.POWER_ACTIVE_TOTAL_POS, yesterday_start, today_start, device_id
     )
-    severity = classify(total, band)
-    if severity is None:
-        return None
-
-    return Alert(
-        kind="daily_total",
-        severity=severity,
-        device_id=device_id,
-        variable=Variable.POWER_ACTIVE_TOTAL_POS.value,
-        value=total,
-        expected_low=band.p10,
-        expected_high=band.p90,
-        bucket=weekday,
-        timestamp=yesterday_start,
-        message=(
-            f"Consumo del {_WEEKDAY_NAMES[weekday]} inusual: {total:.2f} kWh "
-            f"(lo típico es entre {band.p10:.2f} y {band.p90:.2f} kWh)"
-        ),
-    )
+    return daily_alert(device_id, yesterday_start, weekday, total, band)
 
 
 def _weekday_of(dt: datetime, tz_name: str) -> int:

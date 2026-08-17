@@ -38,3 +38,37 @@ class Alert(BaseModel):
 class AlertsResponse(BaseModel):
     recent: list[Alert]
     daily_total: Alert | None
+
+
+class LevelShift(BaseModel):
+    """Un cambio de nivel sostenido en el consumo diario.
+
+    Distinto de una anomalía puntual: acá cada día por separado puede caer
+    dentro de lo normal mientras el PROMEDIO se corrió y se quedó ahí — una
+    nevera que se degrada, un termo mal configurado, un equipo nuevo.
+    """
+
+    detected_at: datetime
+    before_kwh: float
+    after_kwh: float
+    delta_pct: float
+    direction: Literal["up", "down"]
+    message: str
+
+
+class AlertsHistory(BaseModel):
+    """Qué días del rango se salieron de lo normal y desde cuándo cambió el
+    nivel de consumo.
+
+    Se recalcula sobre los datos guardados, no se lee de una tabla de eventos:
+    la energía diaria y su banda ya están en InfluxDB, y guardar además el
+    veredicto sería un segundo origen de verdad que puede contradecir al
+    primero (ver `app/services/alerts/history.py`).
+    """
+
+    device_id: str | None
+    period_start: datetime
+    period_end: datetime
+    days_analyzed: int
+    anomalies: list[Alert]
+    level_shift: LevelShift | None

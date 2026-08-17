@@ -25,6 +25,7 @@ from app.schemas.analytics import (
     CompareResult,
     HourProfilePoint,
     ReactiveQuadrantsResult,
+    SiteModeResult,
     WeekdayProfilePoint,
 )
 from app.schemas.common import ApiResponse
@@ -32,6 +33,7 @@ from app.schemas.tariff import TariffConfig
 from app.services.analytics.compare import compare_periods
 from app.services.analytics.profile import daily_profile, weekday_profile
 from app.services.analytics.reactive import reactive_quadrants
+from app.services.analytics.site_mode import declared_mode, detect_site_mode
 from app.services.analytics.summary import analytics_summary
 from app.services.periods import PeriodBounds, resolve_period
 
@@ -58,6 +60,42 @@ def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | No
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get(
+    "/site-mode",
+    summary="Si la sede tiene generación propia o es de consumo puro",
+    response_model=ApiResponse[SiteModeResult],
+)
+async def analytics_site_mode(
+    repo: RepoDep,
+    fleet: CurrentFleet,
+    device_id: str | None = None,
+) -> ApiResponse[SiteModeResult]:
+    """Cómo hay que leer el medidor de frontera de esta sede.
+
+    Con generación fotovoltaica el medidor solo ve el BALANCE NETO, así que en
+    horas de sol el consumo real queda escondido y varios indicadores solo
+    valen de noche. Sin generación, todo lo que pasa por el medidor es consumo
+    y valen las 24 h. El panel usa esto para no mostrar exportación, saldo a
+    favor ni balance neto en una instalación que nunca va a tener ninguno.
+
+    Manda lo declarado en el CRM; si nadie lo declaró, se deduce de la energía
+    exportada del último mes (cacheado 24 h: una sede no cambia de modo
+    intradía).
+    """
+    declaraciones = [
+        device.tiene_generacion
+        for device in fleet.devices
+        if device_id is None or device.id == device_id
+    ]
+    declarado = declared_mode(declaraciones)
+    if declarado is not None:
+        return ApiResponse(data=SiteModeResult(device_id=device_id, mode=declarado, source="crm"))
+    detectado = await detect_site_mode(repo, device_id)
+    return ApiResponse(
+        data=SiteModeResult(device_id=device_id, mode=detectado, source="detected")
+    )
 
 
 @router.get(

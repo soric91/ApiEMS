@@ -64,6 +64,11 @@ class FleetDevice:
     # No se recalcula acá: sería un segundo criterio que se puede desincronizar
     # del que muestra el panel del operador.
     gateway_en_linea: bool
+    # Si la SEDE de este equipo tiene generación propia inyectando a la red.
+    # `None` es "nadie lo declaró en el CRM": el modo se detecta a partir de la
+    # energía exportada (ver `services/analytics/site_mode.py`). No se asume
+    # `False`, que apagaría la exportación en una sede que sí tiene solar.
+    tiene_generacion: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +115,15 @@ def _entero(valor: object) -> int | None:
     return valor if isinstance(valor, int) and not isinstance(valor, bool) else None
 
 
+def _booleano(valor: object) -> bool | None:
+    """`None` cuando el CRM no lo trae o lo trae en otra forma.
+
+    Distinguir ausente de `False` es el punto: un CRM viejo que todavía no
+    manda el campo tiene que caer en la detección automática, no quedar
+    marcado como sede sin generación."""
+    return valor if isinstance(valor, bool) else None
+
+
 def walk_devices(
     payload: dict[str, Any],
 ) -> tuple[list[FleetDevice], dict[str, FleetVariable], bool]:
@@ -149,6 +163,7 @@ def walk_devices(
                             gateway_id=str(gateway.get("id", "")),
                             gateway=str(gateway.get("numero_serie") or "Sin gateway"),
                             gateway_en_linea=gateway.get("estado") == "online",
+                            tiene_generacion=_booleano(site.get("tiene_generacion")),
                         )
                     )
                     for variable in _children(equipment, "variables"):

@@ -8,10 +8,32 @@ así que esas ventanas se excluyen en vez de inventar un proxy.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.schemas.tariff import EfficiencyRecommendation
+
+# Cómo se lee el medidor de frontera. Vive en los esquemas, como `CostPeriod`:
+# lo usan tanto el servicio que lo resuelve como el contrato de la API.
+SiteMode = Literal["consumo", "generacion"]
+
+
+class SiteModeResult(BaseModel):
+    """Cómo hay que leer el medidor de frontera de esta sede.
+
+    `consumo`: sin generación propia, todo lo que pasa por el medidor es
+    consumo y los indicadores valen las 24 h. `generacion`: hay fotovoltaica
+    inyectando, el medidor solo ve el balance neto y varios indicadores solo
+    son válidos fuera de las horas de sol.
+
+    `source` dice de dónde salió: `crm` si alguien lo declaró en la sede,
+    `detected` si se dedujo de la energía exportada del último mes.
+    """
+
+    device_id: str | None
+    mode: SiteMode
+    source: Literal["crm", "detected"]
 
 
 class HourProfilePoint(BaseModel):

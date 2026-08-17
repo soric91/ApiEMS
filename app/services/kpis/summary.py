@@ -6,7 +6,7 @@ from datetime import datetime
 import polars as pl
 
 from app.core.config import Settings
-from app.models.variables import Variable
+from app.models.variables import Aggregation, Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.influx import TimeSeriesPoint
 from app.schemas.kpis import KpiSummary
@@ -30,12 +30,31 @@ async def compute_kpis(
     stop: datetime,
     device_id: str | None,
     power_points: list[TimeSeriesPoint] | None = None,
+    peak_points: list[TimeSeriesPoint] | None = None,
 ) -> KpiSummary:
+    """KPIs del rango.
+
+    `power_points` es la serie agregada con `mean()` (promedios) y
+    `peak_points` la agregada con `max()` (el pico). Son dos series distintas
+    porque `power_max_w` sacado del promedio por ventana queda subestimado: con
+    ~500 puntos, 30 días dan ventanas de ~86 min. Quien ya las leyó las pasa
+    (ver `reports.builder.consolidate`) y acá no se vuelve a consultar.
+    """
     every = auto_interval(start, stop)
 
     if power_points is None:
         power_points = await cached_instant_series(
             repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
+        )
+    if peak_points is None:
+        peak_points = await cached_instant_series(
+            repo,
+            Variable.POWER_ACTIVE_INST_TOTAL,
+            start,
+            stop,
+            every,
+            Aggregation.MAX,
+            device_id=device_id,
         )
     (
         voltage_a_points,
@@ -59,9 +78,8 @@ async def compute_kpis(
 
     # Polars es CPU síncrono: las cuatro reducciones se corren en threads,
     # no en el event loop (ver skill fastapi).
-    power_avg, power_max, _ = await asyncio.to_thread(
-        _stats, power_points
-    )
+    power_avg, _, _ = await asyncio.to_thread(_stats, power_points)
+    _, power_max, _ = await asyncio.to_thread(_stats, peak_points)
     voltage_avg, voltage_max, voltage_min = await asyncio.to_thread(
         _stats, voltage_a_points + voltage_b_points + voltage_c_points
     )

@@ -60,13 +60,15 @@ def test_report_custom_ok(
 def test_report_daily_reads_power_series_once(
     client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
 ) -> None:
-    """F2.2: KPIs + demanda + factor de carga + carga base comparten el mismo
-    `cached_instant_series(TotW)`: en /reports/daily la serie de potencia se
-    lee EXACTAMENTE una vez por familia, no una por cada indicador."""
+    """F2.2 + F0.1: KPIs + demanda + factor de carga + carga base comparten las
+    series de potencia. Son DOS lecturas y solo dos: una `mean` (promedios) y
+    una `max` (la demanda pico, que el promedio borraba). Ni una por indicador,
+    ni la misma agregación dos veces."""
     response = client.get("/api/v1/reports/daily", headers=auth_headers)
     assert response.status_code == 200
 
     power_reads = [
         call for call in fake_influx_repo.calls if call[0] == "instant_series" and call[1] == "TotW"
     ]
-    assert len(power_reads) == 1
+    aggregations = [call[2] for call in power_reads]
+    assert sorted(aggregations) == ["max", "mean"]

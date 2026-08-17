@@ -20,8 +20,7 @@ from app.schemas.dashboard import (
 )
 from app.schemas.realtime import DeviceSnapshot
 from app.schemas.tariff import CostBreakdown, TariffConfig
-from app.services.analytics.base_load import DEFAULT_PERCENTILE
-from app.services.analytics.common import auto_interval
+from app.services.analytics.common import DEFAULT_PERCENTILE, auto_interval
 from app.services.influx.cache import cached_energy_series, cached_energy_total
 from app.services.influx.client import InfluxService
 from app.services.mqtt.client import MQTTService

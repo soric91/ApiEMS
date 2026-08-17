@@ -5,15 +5,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from app.core.config import Settings
-from app.models.variables import Variable
+from app.models.variables import Aggregation, Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.analytics import BaseLoadResult, LoadFactorResult, MaxDemandResult
 from app.schemas.influx import EnergyPoint
 from app.schemas.kpis import KpiSummary
 from app.schemas.reports import ReportData, ReportPeriod
 from app.schemas.tariff import CostBreakdown, CostPeriod, TariffConfig
-from app.services.analytics.base_load import DEFAULT_PERCENTILE
 from app.services.analytics.common import (
+    DEFAULT_PERCENTILE,
     base_load_result,
     load_factor_result,
     max_demand_result,
@@ -86,19 +86,54 @@ async def consolidate(
         cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, device_id),
     )
 
-    power_points = await cached_instant_series(
-        repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
+    # DOS lecturas de la misma variable, con agregación distinta y a propósito:
+    #   - mean: promedios (KPI de potencia, media de importación, carga base).
+    #   - max:  la demanda pico. Promediar la ventana la borra — con ~500
+    #     puntos, 30 días dan ventanas de ~86 min y un pico de tres minutos
+    #     desaparecía dentro del promedio.
+    # Las dos van cacheadas (SERIES_TTL) y en paralelo, así que el costo es una
+    # consulta más, no el doble de latencia.
+    power_points, peak_points = await asyncio.gather(
+        cached_instant_series(
+            repo, Variable.POWER_ACTIVE_INST_TOTAL, start, stop, every, device_id=device_id
+        ),
+        cached_instant_series(
+            repo,
+            Variable.POWER_ACTIVE_INST_TOTAL,
+            start,
+            stop,
+            every,
+            Aggregation.MAX,
+            device_id=device_id,
+        ),
     )
     # Polars es CPU síncrono (power_frames y los *_result): se corre fuera del
     # event loop (ver skill fastapi — "blocking code is not run inside of
     # async functions").
-    _, importing = await asyncio.to_thread(power_frames, power_points)
-    max_demand, load_factor, base_load = await asyncio.gather(
-        asyncio.to_thread(max_demand_result, start, stop, device_id, importing),
-        asyncio.to_thread(load_factor_result, start, stop, device_id, importing),
+    (_, importing), (_, importing_peak) = await asyncio.gather(
+        asyncio.to_thread(power_frames, power_points),
+        asyncio.to_thread(power_frames, peak_points),
+    )
+    # El pico se resuelve primero porque el factor de carga lo necesita: media
+    # del marco promediado sobre el pico real.
+    max_demand = await asyncio.to_thread(
+        max_demand_result, start, stop, device_id, importing_peak
+    )
+    load_factor, base_load = await asyncio.gather(
+        asyncio.to_thread(
+            load_factor_result, start, stop, device_id, importing, max_demand.peak_power_w
+        ),
         asyncio.to_thread(base_load_result, start, stop, device_id, importing, percentile),
     )
-    kpis = await compute_kpis(repo, settings, start, stop, device_id, power_points=power_points)
+    kpis = await compute_kpis(
+        repo,
+        settings,
+        start,
+        stop,
+        device_id,
+        power_points=power_points,
+        peak_points=peak_points,
+    )
     costs = compute_cost_from_points(
         tariff,
         cost_period,

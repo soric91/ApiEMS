@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from app.core.config import Settings
-from app.models.variables import Variable
+from app.models.variables import Aggregation, Variable
 from app.schemas.influx import TimeSeriesPoint
 from app.services.kpis.summary import compute_kpis
 from tests.fakes import FakeInfluxRepository
@@ -62,6 +62,41 @@ async def test_compute_kpis_combines_phases() -> None:
     assert result.power_factor_avg == round((0.9 + 0.95) / 2, 2)  # 0.93 (round-half-to-even)
     assert result.consumption_daily_kwh == 3.0
     assert result.export_monthly_kwh == 3.0
+
+
+async def test_compute_kpis_max_comes_from_the_max_series() -> None:
+    """F0.1: `power_max_w` sale de la serie agregada con `max()` y el promedio
+    de la agregada con `mean()`. Antes ambos salían de la promediada, así que
+    el máximo era el mayor de los promedios."""
+    repo = FakeInfluxRepository()
+    repo.instant_series_by_aggregation = {
+        (Variable.POWER_ACTIVE_INST_TOTAL, Aggregation.MEAN): _points([100.0, 200.0]),
+        (Variable.POWER_ACTIVE_INST_TOTAL, Aggregation.MAX): _points([100.0, 9_000.0]),
+    }
+
+    result = await compute_kpis(repo, _settings(), START, STOP, None)
+
+    assert result.power_avg_w == 150.0
+    assert result.power_max_w == 9_000.0
+
+
+async def test_compute_kpis_uses_given_peak_points_without_querying() -> None:
+    """Quien ya leyó las dos series las pasa y no se vuelve a consultar
+    (`reports.builder.consolidate`)."""
+    repo = FakeInfluxRepository()
+
+    result = await compute_kpis(
+        repo,
+        _settings(),
+        START,
+        STOP,
+        None,
+        power_points=_points([100.0, 200.0]),
+        peak_points=_points([100.0, 4_000.0]),
+    )
+
+    assert result.power_max_w == 4_000.0
+    assert not [call for call in repo.calls if call[0] == "instant_series" and call[1] == "TotW"]
 
 
 async def test_compute_kpis_none_when_no_samples() -> None:

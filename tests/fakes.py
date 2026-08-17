@@ -25,6 +25,11 @@ class FakeInfluxRepository:
         # necesitan distinguir p. ej. importación vs exportación.
         self.energy_series_points_by_counter: dict[Variable, list[EnergyPoint]] = {}
         self.instant_series_by_variable: dict[Variable, list[TimeSeriesPoint]] = {}
+        # Override por (variable, agregación): para distinguir la serie
+        # promediada de la de máximos, que es de donde sale la demanda pico.
+        self.instant_series_by_aggregation: dict[
+            tuple[Variable, Aggregation], list[TimeSeriesPoint]
+        ] = {}
         self.energy_total_by_counter: dict[Variable, float] = {}
         # Puntos crudos por contador para el volcado CSV (energy_records).
         self.energy_records_points_by_counter: dict[Variable, list[EnergyPoint]] = {}
@@ -147,6 +152,9 @@ class FakeInfluxRepository:
                 tuple(devices or ()),
             )
         )
+        by_aggregation = self.instant_series_by_aggregation.get((variable, aggregation))
+        if by_aggregation is not None:
+            return by_aggregation
         return self.instant_series_by_variable.get(variable, self.instant_series_points)
 
     async def instant_reduce(

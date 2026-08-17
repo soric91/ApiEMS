@@ -14,6 +14,11 @@ from app.schemas.influx import TimeSeriesPoint
 _TARGET_POINTS = 500
 _MIN_INTERVAL = timedelta(minutes=1)
 
+# Percentil de la carga base: el 10% más bajo de la importación del periodo.
+# Vive acá, junto a `base_load_result`, y no en un módulo propio: es el único
+# parámetro del cálculo y lo comparte quien arma el reporte.
+DEFAULT_PERCENTILE = 0.10
+
 
 def auto_interval(start: datetime, stop: datetime) -> timedelta:
     """Ventana de agregación que no excede ~500 puntos en el rango dado."""
@@ -70,6 +75,19 @@ def max_demand_result(
     device_id: str | None,
     importing: pl.DataFrame | None,
 ) -> MaxDemandResult:
+    """La demanda pico del periodo, a partir del marco de importación.
+
+    `importing` tiene que venir de una serie agregada con `max()` por ventana,
+    NO con `mean()`: promediar la ventana borra el pico. Con el intervalo
+    automático (~500 puntos) un rango de 30 días usa ventanas de ~86 min, así
+    que un pico de tres minutos desaparecía dentro del promedio y la demanda
+    máxima salía varias veces más baja que la real. Ver
+    `reports.builder.consolidate`, que lee las dos series (mean para promedios,
+    max para el pico).
+
+    `peak_at` es el INICIO de la ventana donde ocurrió el pico, no el instante
+    exacto: la precisión del timestamp es la del bucket, la del valor no.
+    """
     empty = MaxDemandResult(
         period_start=start, period_end=stop, device_id=device_id, peak_power_w=None, peak_at=None
     )
@@ -90,7 +108,16 @@ def load_factor_result(
     stop: datetime,
     device_id: str | None,
     importing: pl.DataFrame | None,
+    peak_w: float | None = None,
 ) -> LoadFactorResult:
+    """Factor de carga = importación media / demanda pico.
+
+    `peak_w` es la demanda pico REAL (la que calcula `max_demand_result` sobre
+    la serie agregada con `max()`). Sin ella el pico se toma del mismo marco
+    promediado que la media, que lo subestima y por tanto INFLA el factor de
+    carga — justo el error que hacía ver instalaciones mucho más parejas de lo
+    que son. El promedio sí sale del marco promediado: ahí `mean()` es correcto.
+    """
     empty = LoadFactorResult(
         period_start=start,
         period_end=stop,
@@ -103,7 +130,7 @@ def load_factor_result(
         return empty
     values = _value_series(importing)
     avg = series_mean(values)
-    peak = series_max(values)
+    peak = peak_w if peak_w is not None else series_max(values)
     return LoadFactorResult(
         period_start=start,
         period_end=stop,

@@ -69,6 +69,11 @@ class FleetDevice:
     # energía exportada (ver `services/analytics/site_mode.py`). No se asume
     # `False`, que apagaría la exportación en una sede que sí tiene solar.
     tiene_generacion: bool | None = None
+    # Cada cuánto publica el gateway que lee este equipo, según el CRM. Es la
+    # referencia de cuántas muestras DEBERÍA haber en una ventana, o sea de la
+    # cobertura de datos. `None` si el CRM no lo trae: ahí la cobertura se
+    # infiere del propio rango y se marca como inferida.
+    intervalo_lectura_segundos: int | None = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +169,9 @@ def walk_devices(
                             gateway=str(gateway.get("numero_serie") or "Sin gateway"),
                             gateway_en_linea=gateway.get("estado") == "online",
                             tiene_generacion=_booleano(site.get("tiene_generacion")),
+                            intervalo_lectura_segundos=_entero(
+                                gateway.get("intervalo_lectura_segundos")
+                            ),
                         )
                     )
                     for variable in _children(equipment, "variables"):

@@ -71,6 +71,15 @@ class InfluxDataSource(Protocol):
         device_id: str | None = None,
     ) -> float | None: ...
 
+    async def sample_counts(
+        self,
+        variable: Variable,
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+    ) -> list[TimeSeriesPoint]: ...
+
     async def energy_totals_by_counter(
         self,
         counters: Sequence[Variable],
@@ -195,6 +204,43 @@ class InfluxRepository:
             return None
         time, value = records[-1]
         return TimeSeriesPoint(time=time, value=value)
+
+    async def sample_counts(
+        self,
+        variable: Variable,
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> list[TimeSeriesPoint]:
+        """Cuántas muestras crudas llegaron en cada ventana.
+
+        Sirve para medir cobertura: una ventana con menos muestras de las
+        esperadas es un hueco de datos, y un hueco no es consumo cero.
+
+        `createEmpty: true` es el punto entero de la consulta: una ventana sin
+        NINGUNA lectura tiene que aparecer con 0, no desaparecer. Por eso no
+        reusa `_records`, que descarta los valores nulos — acá un nulo es
+        exactamente el dato que interesa.
+        """
+        flux = (
+            _BASE_FILTER
+            + _device_filter(device_id, devices)
+            + "  |> aggregateWindow(every: _every, offset: _offset, "
+            + "fn: count, createEmpty: true)\n"
+        )
+        params = self._params(
+            field=variable,
+            start=start,
+            stop=stop,
+            every=every,
+            device_id=device_id,
+            devices=devices,
+        )
+        params["_offset"] = flux_window_offset(self._tz_name, start)
+        tables = await self._query(flux, params)
+        return self._counts(tables)
 
     async def instant_reduce(
         self,
@@ -556,6 +602,24 @@ schema.fieldKeys(
                 if time is not None and value is not None:
                     out.append((time, round(float(value), 2)))
         out.sort(key=lambda item: item[0])
+        return out
+
+    @staticmethod
+    def _counts(tables: Any) -> list[TimeSeriesPoint]:
+        """Conteos por ventana, con el nulo leído como cero.
+
+        Al revés que `_records`: ahí un nulo es una ventana sin dato que no
+        aporta nada, acá es una ventana en la que no llegó NADA, que es
+        justamente lo que se está midiendo."""
+        out: list[TimeSeriesPoint] = []
+        for table in tables:
+            for record in table.records:
+                time = record.values.get("_time")
+                if time is None:
+                    continue
+                value = record.values.get("_value")
+                out.append(TimeSeriesPoint(time=time, value=float(value or 0)))
+        out.sort(key=lambda point: point.time)
         return out
 
     @staticmethod

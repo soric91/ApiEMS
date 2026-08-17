@@ -85,6 +85,23 @@ class ScopedInfluxRepository:
             variable, self._check(device_id), devices=self._scope, lookback=lookback
         )
 
+    async def sample_counts(
+        self,
+        variable: Variable,
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+    ) -> list[TimeSeriesPoint]:
+        return await self._inner.sample_counts(
+            variable,
+            start,
+            stop,
+            every,
+            self._check(device_id),
+            devices=self._scope,
+        )
+
     async def instant_reduce(
         self,
         variable: Variable,

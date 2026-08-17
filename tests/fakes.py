@@ -19,6 +19,8 @@ class FakeInfluxRepository:
         self.energy_total_value: float = 5.5
         self.energy_series_points: list[EnergyPoint] = []
         self.instant_series_points: list[TimeSeriesPoint] = []
+        # Muestras por ventana, para la cobertura de datos.
+        self.sample_counts_points: list[TimeSeriesPoint] = []
         self.instant_reduce_value: float | None = 100.0
         # Override por agregación: para distinguir min/max/mean/last en las
         # reducciones escalares (/history/stats).
@@ -159,6 +161,20 @@ class FakeInfluxRepository:
         if by_aggregation is not None:
             return by_aggregation
         return self.instant_series_by_variable.get(variable, self.instant_series_points)
+
+    async def sample_counts(
+        self,
+        variable: Variable,
+        start: datetime,
+        stop: datetime,
+        every: timedelta,
+        device_id: str | None = None,
+        devices: Sequence[str] | None = None,
+    ) -> list[TimeSeriesPoint]:
+        self.calls.append(
+            ("sample_counts", variable.value, str(device_id), tuple(devices or ()))
+        )
+        return self.sample_counts_points
 
     async def instant_reduce(
         self,

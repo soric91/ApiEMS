@@ -36,6 +36,38 @@ class SiteModeResult(BaseModel):
     source: Literal["crm", "detected"]
 
 
+class CoveragePoint(BaseModel):
+    """Cuánto dato llegó en una ventana. `ratio` 1.0 = completa."""
+
+    time: datetime
+    samples: int
+    ratio: float
+
+
+class CoverageResult(BaseModel):
+    """Cuánto dato hay realmente en el rango.
+
+    Un hueco no es consumo cero, pero se ve igual en una gráfica: sin esto, un
+    gateway caído diez horas deja un día que parece de bajo consumo. Todo lo
+    que compara periodos entre sí depende de saber que ambos están completos.
+
+    `expected_source` dice de dónde salieron las muestras esperadas:
+    `declarado` (el intervalo de lectura configurado en el CRM), `inferido`
+    (el percentil 90 de las ventanas del propio rango) o `desconocido` (no hubo
+    ninguna muestra de la cual inferir).
+    """
+
+    device_id: str | None
+    period_start: datetime
+    period_end: datetime
+    bucket_seconds: int
+    expected_per_bucket: float | None
+    expected_source: Literal["declarado", "inferido", "desconocido"]
+    overall_ratio: float | None
+    incomplete_buckets: int
+    points: list[CoveragePoint]
+
+
 class HourProfilePoint(BaseModel):
     hour: int
     power_avg_w: float

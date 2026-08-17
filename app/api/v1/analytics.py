@@ -23,6 +23,7 @@ from app.repositories.scoped import ScopedInfluxRepository
 from app.schemas.analytics import (
     AnalyticsSummary,
     CompareResult,
+    CoverageResult,
     HourProfilePoint,
     ReactiveQuadrantsResult,
     SiteModeResult,
@@ -31,10 +32,12 @@ from app.schemas.analytics import (
 from app.schemas.common import ApiResponse
 from app.schemas.tariff import TariffConfig
 from app.services.analytics.compare import compare_periods
+from app.services.analytics.coverage import coverage
 from app.services.analytics.profile import daily_profile, weekday_profile
 from app.services.analytics.reactive import reactive_quadrants
 from app.services.analytics.site_mode import declared_mode, detect_site_mode
 from app.services.analytics.summary import analytics_summary
+from app.services.crm.fleet import ClientFleet
 from app.services.periods import PeriodBounds, resolve_period
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -54,12 +57,69 @@ FromQuery = Annotated[
 ToQuery = Annotated[datetime | None, Query(description="Fin del rango (UTC). Por defecto: ahora.")]
 
 
+def _reading_interval(fleet: ClientFleet, device_id: str | None) -> int | None:
+    """Cada cuánto publica el equipo consultado, según el CRM.
+
+    Sin `device_id` la consulta agrega varios equipos: solo se devuelve un
+    intervalo si TODOS declaran el mismo. Con dos gateways a ritmos distintos,
+    cualquier número sería la cobertura de uno y el error del otro, así que se
+    deja que se infiera de los datos."""
+    intervalos = {
+        device.intervalo_lectura_segundos
+        for device in fleet.devices
+        if device_id is None or device.id == device_id
+    }
+    if len(intervalos) != 1:
+        return None
+    return intervalos.pop()
+
+
 def _resolve_range(settings: Settings, from_: datetime | None, to: datetime | None) -> PeriodBounds:
     """Rango del endpoint por defecto (hoy) con las sobreescrituras from/to."""
     try:
         return resolve_period("day", settings.TIMEZONE, from_=from_, to=to)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get(
+    "/coverage",
+    summary="Cuánto dato hay realmente en el rango",
+    response_model=ApiResponse[CoverageResult],
+)
+async def analytics_coverage(
+    repo: RepoDep,
+    settings: SettingsDep,
+    fleet: CurrentFleet,
+    from_: FromQuery = None,
+    to: ToQuery = None,
+    bucket_seconds: Annotated[
+        int, Query(gt=0, description="Tamaño de la ventana en segundos")
+    ] = 3600,
+    device_id: str | None = None,
+) -> ApiResponse[CoverageResult]:
+    """Qué porcentaje de las lecturas esperadas llegó, ventana por ventana.
+
+    Un hueco de datos no es consumo cero, pero se ve igual: un gateway caído
+    diez horas deja un día que parece de bajo consumo. Acá se ve dónde faltan
+    lecturas, y el panel puede marcar esos tramos en vez de dibujarlos como si
+    fueran datos buenos.
+
+    Las muestras esperadas salen del intervalo de lectura configurado en el CRM
+    para el gateway; si no está, se infieren del propio rango y la respuesta lo
+    dice en `expected_source`.
+    """
+    bounds = _resolve_range(settings, from_, to)
+    return ApiResponse(
+        data=await coverage(
+            repo,
+            bounds.start,
+            bounds.stop,
+            timedelta(seconds=bucket_seconds),
+            device_id,
+            _reading_interval(fleet, device_id),
+        )
+    )
 
 
 @router.get(

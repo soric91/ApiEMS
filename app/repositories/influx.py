@@ -106,6 +106,11 @@ class InfluxDataSource(Protocol):
     ) -> AsyncGenerator[EnergyRecord]: ...
 
 
+#: Cuánto se mira hacia atrás buscando la lectura que sirve de base al rango.
+#: Un día cubre los cortes de comunicación que se ven en la práctica —el más
+#: largo observado fue de 7 h 21 min— sin barrer historia que ya no dice nada.
+VENTANA_BASE = timedelta(days=1)
+
 _BASE_FILTER = """
 from(bucket: _bucket)
   |> range(start: _start, stop: _stop)
@@ -312,7 +317,26 @@ class InfluxRepository:
         device_id: str | None = None,
         devices: Sequence[str] | None = None,
     ) -> float:
-        """Energía total (kWh) en el rango: spread() = last - first del contador."""
+        """Energía total (kWh) del rango: el contador al cerrar menos el de la base.
+
+        La base es la última lectura ANTERIOR al rango, no la primera de
+        adentro. La diferencia solo importa cuando el medidor dejó de reportar
+        sobre el límite del periodo, y ahí importa mucho: `spread()` resta la
+        primera muestra de adentro, así que lo consumido entre el inicio del
+        rango y esa muestra no entraba en ningún total. Un corte de
+        comunicación de las 19:00 a las 02:21 dejaba al día siguiente sin las
+        2 h 21 min que sí consumió, y al mes sin los 5,04 kWh completos:
+        energía que el contador registró y que ninguna factura cobraba.
+
+        Con la base anterior esa energía vuelve al total. Sigue atribuida al
+        periodo donde TERMINA el silencio en vez de repartida entre los dos que
+        abarca —repartirla exigiría inventar a qué ritmo se consumió—, pero el
+        acumulado del mes vuelve a cuadrar con el contador.
+
+        Sin lectura previa dentro de `VENTANA_BASE` se cae a `spread()`: es el
+        medidor recién instalado, donde no hay base que buscar y la primera
+        muestra del rango es lo mejor que hay.
+        """
         if not is_cumulative(counter):
             raise ValueError(f"'{counter}' no es un contador acumulativo")
 
@@ -325,12 +349,54 @@ class InfluxRepository:
         if start >= stop:
             return 0.0
 
+        base = await self._ultimo(counter, start - VENTANA_BASE, start, device_id, devices)
+        if base is None:
+            return await self._spread(counter, start, stop, device_id, devices)
+
+        cierre = await self._ultimo(counter, start, stop, device_id, devices)
+        # Ni una lectura en todo el rango: el silencio lo abarca entero y su
+        # energía se sabrá cuando el medidor vuelva a hablar.
+        if cierre is None:
+            return 0.0
+
+        # Un contador que retrocede es un reinicio o una lectura corrupta, no
+        # energía negativa.
+        return round(max(0.0, cierre - base), 2)
+
+    async def _spread(
+        self,
+        counter: Variable,
+        start: datetime,
+        stop: datetime,
+        device_id: str | None,
+        devices: Sequence[str] | None,
+    ) -> float:
+        """La resta de siempre: última menos primera muestra DENTRO del rango."""
         flux = _BASE_FILTER + _device_filter(device_id, devices) + "  |> spread()\n"
         params = self._params(
             field=counter, start=start, stop=stop, device_id=device_id, devices=devices
         )
         tables = await self._query(flux, params)
         return round(sum(self._values(tables)), 2)
+
+    async def _ultimo(
+        self,
+        counter: Variable,
+        start: datetime,
+        stop: datetime,
+        device_id: str | None,
+        devices: Sequence[str] | None,
+    ) -> float | None:
+        """El contador en su última lectura del rango, o `None` si no hubo ninguna."""
+        if start >= stop:
+            return None
+        flux = _BASE_FILTER + _device_filter(device_id, devices) + "  |> last()\n"
+        params = self._params(
+            field=counter, start=start, stop=stop, device_id=device_id, devices=devices
+        )
+        tables = await self._query(flux, params)
+        records = self._records(tables)
+        return records[-1][1] if records else None
 
     async def energy_totals_by_counter(
         self,

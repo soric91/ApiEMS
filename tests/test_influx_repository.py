@@ -9,7 +9,7 @@ from app.models.variables import (
     InvalidAggregationError,
     Variable,
 )
-from app.repositories.influx import InfluxRepository
+from app.repositories.influx import VENTANA_BASE, InfluxRepository
 from app.utils.period import flux_window_offset
 
 START = datetime(2026, 7, 1, tzinfo=UTC)
@@ -31,16 +31,26 @@ class FakeTable:
 
 
 class FakeQueryApi:
-    """Captura la consulta Flux y sus params; devuelve las tablas configuradas."""
+    """Captura la consulta Flux y sus params; devuelve las tablas configuradas.
+
+    `respuestas` sirve para los métodos que hacen MÁS de una consulta —la
+    energía de un rango pide primero su base anterior y después el cierre—: se
+    devuelve una por llamada, en orden.
+    """
 
     def __init__(self) -> None:
         self.flux: str | None = None
         self.params: dict[str, Any] | None = None
         self.tables: list[FakeTable] = []
+        self.respuestas: list[list[FakeTable]] | None = None
+        self.consultas: list[tuple[str, dict[str, Any]]] = []
 
     async def query(self, flux: str, params: dict[str, Any]) -> list[Any]:
         self.flux = flux
         self.params = params
+        self.consultas.append((flux, params))
+        if self.respuestas is not None:
+            return self.respuestas.pop(0) if self.respuestas else []
         return self.tables
 
     async def query_stream(self, flux: str, params: dict[str, Any] | None = None) -> Any:
@@ -526,3 +536,144 @@ async def test_el_tamano_de_ventana_no_cambia_el_total(
     )
 
     assert sum(p.value for p in puntos) == 4.0
+
+
+# ---------------------------------------------------------------------------
+# La energía que se perdía en el borde del periodo
+#
+# Caso real (2026-08-09/10): el medidor calló de 19:00 a 02:21. Consultando
+# desde el 9 aparecían 5,04 kWh en un punto; consultando desde el 10 —que es lo
+# que hace el reporte diario, que arranca a medianoche— no aparecían en ningún
+# lado. La misma energía, registrada por el contador, daba dos respuestas según
+# dónde cayera el límite del rango.
+# ---------------------------------------------------------------------------
+
+MEDIANOCHE = datetime(2026, 8, 10, 5, tzinfo=UTC)  # 00:00 en Bogotá
+FIN_DEL_DIA = MEDIANOCHE + timedelta(days=1)
+
+
+def _tabla(*valores: tuple[datetime, float]) -> list[FakeTable]:
+    return [FakeTable([FakeRecord({"_time": t, "_value": v}) for t, v in valores])]
+
+
+async def test_el_total_arranca_de_la_lectura_anterior_al_rango(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """Lo consumido durante el silencio inicial entra en el total.
+
+    El contador marcaba 100 a las 19:00 —última lectura antes del corte— y 105,04
+    al reconectar. Esos 5,04 kWh se consumieron de verdad; con `spread()` sobre
+    el rango se perdían porque la primera muestra de adentro ya era la de
+    después del corte.
+    """
+    fake_api.respuestas = [
+        _tabla((MEDIANOCHE - timedelta(hours=5), 100.0)),  # base: 19:00 del día anterior
+        _tabla((FIN_DEL_DIA - timedelta(minutes=1), 105.04)),  # cierre del día
+    ]
+
+    total = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, MEDIANOCHE, FIN_DEL_DIA)
+
+    assert total == 5.04
+
+
+async def test_la_base_se_busca_antes_del_rango_y_el_cierre_dentro(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """Dos consultas, y cada una mira donde debe."""
+    fake_api.respuestas = [
+        _tabla((MEDIANOCHE - timedelta(hours=5), 100.0)),
+        _tabla((FIN_DEL_DIA - timedelta(minutes=1), 105.04)),
+    ]
+
+    await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, MEDIANOCHE, FIN_DEL_DIA)
+
+    base, cierre = fake_api.consultas
+    assert base[1]["_start"] == MEDIANOCHE - VENTANA_BASE
+    assert base[1]["_stop"] == MEDIANOCHE
+    assert cierre[1]["_start"] == MEDIANOCHE
+    assert cierre[1]["_stop"] == FIN_DEL_DIA
+    # `last()` en las dos: el contador al cerrar cada tramo, no un promedio.
+    assert "last()" in base[0]
+    assert "last()" in cierre[0]
+
+
+async def test_sin_lectura_previa_se_usa_la_resta_de_siempre(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """Un medidor recién instalado no tiene base que buscar.
+
+    Ahí la primera muestra del rango es lo mejor que hay, y `spread()` sigue
+    siendo la respuesta correcta.
+    """
+    fake_api.respuestas = [
+        [],  # sin lectura anterior
+        # spread() lo resuelve InfluxDB: devuelve una fila con la diferencia ya
+        # hecha, no las muestras.
+        _tabla((FIN_DEL_DIA, 2.5)),
+    ]
+
+    total = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, MEDIANOCHE, FIN_DEL_DIA)
+
+    assert total == 2.5
+    assert "spread()" in fake_api.consultas[-1][0]
+
+
+async def test_un_periodo_entero_en_silencio_no_inventa_energia(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """Si el medidor no habló en todo el rango, su energía todavía no se sabe.
+
+    Se conocerá cuando vuelva: el contador la traerá acumulada. Dar por bueno
+    el salto ahora la atribuiría a un periodo que quizá ni siquiera terminó.
+    """
+    fake_api.respuestas = [
+        _tabla((MEDIANOCHE - timedelta(hours=5), 100.0)),
+        [],  # ni una lectura dentro del rango
+    ]
+
+    total = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, MEDIANOCHE, FIN_DEL_DIA)
+
+    assert total == 0.0
+
+
+async def test_un_contador_que_retrocede_no_da_energia_negativa(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    # Un reinicio del equipo o una lectura corrupta: energía importada negativa
+    # no existe.
+    fake_api.respuestas = [
+        _tabla((MEDIANOCHE - timedelta(hours=1), 500.0)),
+        _tabla((FIN_DEL_DIA, 12.0)),
+    ]
+
+    total = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, MEDIANOCHE, FIN_DEL_DIA)
+
+    assert total == 0.0
+
+
+async def test_dos_dias_seguidos_suman_lo_que_avanzo_el_contador(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """La invariante que hace que el mes cuadre con el medidor.
+
+    Con `spread()`, un corte sobre la medianoche dejaba a los dos días por
+    debajo y al mes le faltaba la diferencia. Ahora cada día arranca donde
+    terminó el anterior, así que la suma de los días es lo que marcó el
+    contador — aunque el corte haga que un día cargue con lo del otro.
+    """
+    ayer, hoy = MEDIANOCHE - timedelta(days=1), MEDIANOCHE
+
+    fake_api.respuestas = [
+        _tabla((ayer - timedelta(hours=1), 100.0)),
+        _tabla((ayer + timedelta(hours=19), 103.0)),
+    ]
+    total_ayer = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, ayer, hoy)
+
+    fake_api.respuestas = [
+        _tabla((ayer + timedelta(hours=19), 103.0)),
+        _tabla((hoy + timedelta(hours=23), 111.54)),
+    ]
+    total_hoy = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, hoy, FIN_DEL_DIA)
+
+    # 100 -> 111,54 en el contador; los dos días suman exactamente eso.
+    assert round(total_ayer + total_hoy, 2) == 11.54

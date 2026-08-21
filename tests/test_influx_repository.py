@@ -332,3 +332,64 @@ async def test_offset_is_noop_for_divisor_windows() -> None:
     — solo importa (y corrige) para ventanas de 1 día o más."""
     offset = flux_window_offset("America/Bogota", START)
     assert offset % HOUR == timedelta(0)
+
+
+async def test_energy_total_de_rango_vacio_vale_cero(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """Un rango que no abarca nada vale cero, y ni siquiera se consulta.
+
+    InfluxDB responde 400 ("cannot query an empty range") y eso salía como un
+    500. No lo dispara un rango mal escrito sino una ventana DERIVADA que
+    colapsa: `compute_kpis` recorta "lo que va del día" contra el `stop`
+    pedido, y con un `stop` en la medianoche local ese tramo no dura nada.
+    """
+    total = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, STOP, STOP)
+
+    assert total == 0.0
+    assert fake_api.flux is None
+
+
+async def test_energy_total_de_rango_invertido_tampoco_consulta(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    total = await repo.energy_total(Variable.POWER_ACTIVE_TOTAL_POS, STOP, START)
+
+    assert total == 0.0
+    assert fake_api.flux is None
+
+
+async def test_totales_por_contador_de_rango_vacio_dan_cero(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    totales = await repo.energy_totals_by_counter(list(REACTIVE_QUADRANTS), STOP, STOP)
+
+    assert totales == dict.fromkeys(REACTIVE_QUADRANTS, 0.0)
+    assert fake_api.flux is None
+
+
+async def test_series_por_contador_de_rango_vacio_dan_series_vacias(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    series = await repo.energy_series_by_counter(list(REACTIVE_QUADRANTS), STOP, STOP, HOUR)
+
+    assert series == {c: [] for c in REACTIVE_QUADRANTS}
+    assert fake_api.flux is None
+
+
+async def test_registros_de_rango_vacio_no_traen_nada(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    stream = await repo.energy_records(list(REACTIVE_QUADRANTS), STOP, STOP)
+
+    assert [record async for record in stream] == []
+    assert fake_api.flux is None
+
+
+async def test_rango_vacio_sigue_rechazando_una_variable_instantanea(
+    repo: InfluxRepository,
+) -> None:
+    # La guarda del rango no puede tapar el error de uso: un voltaje no es un
+    # contador acumulativo, con rango vacío o sin él.
+    with pytest.raises(ValueError, match="no es un contador"):
+        await repo.energy_total(Variable.VOLTAGE_A, STOP, STOP)

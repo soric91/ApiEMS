@@ -316,6 +316,15 @@ class InfluxRepository:
         if not is_cumulative(counter):
             raise ValueError(f"'{counter}' no es un contador acumulativo")
 
+        # Un rango vacío vale cero, no un error: InfluxDB responde 400
+        # ("cannot query an empty range") y eso salía como un 500 al cliente.
+        # Pasa con ventanas DERIVADAS que colapsan —`compute_kpis` recorta
+        # "lo que va del día" contra el `stop` pedido, y si `stop` ES la
+        # medianoche local ese tramo no dura nada—, no con un rango que alguien
+        # haya escrito mal.
+        if start >= stop:
+            return 0.0
+
         flux = _BASE_FILTER + _device_filter(device_id, devices) + "  |> spread()\n"
         params = self._params(
             field=counter, start=start, stop=stop, device_id=device_id, devices=devices
@@ -341,6 +350,9 @@ class InfluxRepository:
         for c in counters:
             if not is_cumulative(c):
                 raise ValueError(f"'{c}' no es un contador acumulativo")
+
+        if start >= stop:
+            return dict.fromkeys(counters, 0.0)
 
         flux = (
             "from(bucket: _bucket)\n"
@@ -393,6 +405,9 @@ class InfluxRepository:
         for c in counters:
             if not is_cumulative(c):
                 raise ValueError(f"'{c}' no es un contador acumulativo")
+
+        if start >= stop:
+            return {c: [] for c in counters}
 
         flux = (
             "from(bucket: _bucket)\n"
@@ -453,6 +468,9 @@ class InfluxRepository:
             if not is_cumulative(c):
                 raise ValueError(f"'{c}' no es un contador acumulativo")
 
+        if start >= stop:
+            return self._sin_registros()
+
         flux = (
             "from(bucket: _bucket)\n"
             "  |> range(start: _start, stop: _stop)\n"
@@ -474,6 +492,15 @@ class InfluxRepository:
 
         stream = await self._query_api.query_stream(flux, params=params)  # pyright: ignore[reportUnknownMemberType]
         return self._stream_records(stream)
+
+    def _sin_registros(self) -> AsyncGenerator[EnergyRecord]:
+        """Un stream vacío, para un rango que no abarca nada."""
+
+        async def _iter() -> AsyncGenerator[EnergyRecord]:
+            return
+            yield  # pragma: no cover - marca la función como generador
+
+        return _iter()
 
     def _stream_records(self, stream: Any) -> AsyncGenerator[EnergyRecord]:
         """Aplana el AsyncGenerator de FluxRecord del cliente a tuplas crudas."""

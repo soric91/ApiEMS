@@ -393,3 +393,136 @@ async def test_rango_vacio_sigue_rechazando_una_variable_instantanea(
     # contador acumulativo, con rango vacío o sin él.
     with pytest.raises(ValueError, match="no es un contador"):
         await repo.energy_total(Variable.VOLTAGE_A, STOP, STOP)
+
+
+# ---------------------------------------------------------------------------
+# El pico que aparece después de un vacío de datos
+#
+# Caso real (2026-08-09/10): el medidor dejó de reportar a las 19:00 y volvió a
+# las 02:21. La ventana siguiente trajo 5,04 kWh, que a primera vista es
+# imposible: en un minuto, a 686 W, corresponden 0,011 kWh.
+#
+# Estos tests auditan las cuatro decisiones de `energy_series` de las que
+# depende que ese valor sea energía REAL mal fechada y no energía inventada. Si
+# alguna cambia, el número deja de poder justificarse y el test cae.
+# ---------------------------------------------------------------------------
+
+
+async def test_energia_por_ventana_usa_last_y_diferencia_no_negativa(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """La energía sale de restar el contador, no de promediarlo.
+
+    `fn: last` toma el valor del contador al cerrar cada ventana y
+    `difference()` resta contra el cierre de la ventana anterior: por eso el
+    resultado es exactamente lo que avanzó el contador entre dos instantes, sin
+    importar cuántas muestras hubo en el medio ni si hubo alguna.
+    """
+    await repo.energy_series(Variable.POWER_ACTIVE_TOTAL_POS, START, STOP, HOUR)
+
+    assert fake_api.flux is not None
+    assert "fn: last" in fake_api.flux
+    assert "difference(nonNegative: true)" in fake_api.flux
+    # Un promedio o una suma sobre un contador acumulativo darían un número sin
+    # significado físico.
+    assert "fn: mean" not in fake_api.flux
+    assert "sum()" not in fake_api.flux
+
+
+async def test_el_rango_se_extiende_una_ventana_hacia_atras(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """Sin ese margen, la primera ventana pedida no tendría contra qué restar.
+
+    Es la razón por la que `_start` va antes del `from` del usuario: la resta
+    necesita el cierre de la ventana anterior, que está fuera del rango pedido.
+    """
+    await repo.energy_series(Variable.POWER_ACTIVE_TOTAL_POS, START, STOP, HOUR)
+
+    assert fake_api.params is not None
+    assert fake_api.params["_start"] == START - HOUR
+    assert fake_api.params["_stop"] == STOP
+
+
+async def test_el_punto_del_borde_no_se_cuenta_dos_veces(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """La garantía de que trocear un rango no infla el total.
+
+    El histórico fino pide el rango de a pedazos. Si el punto que cae justo en
+    `start` se emitiera, aparecería también como último punto del tramo
+    anterior y su energía se contaría dos veces. Se descarta por `t > start`.
+    """
+    fake_api.tables = [
+        FakeTable(
+            [
+                FakeRecord({"_time": START, "_value": 4.0}),  # cierre del tramo anterior
+                FakeRecord({"_time": START + HOUR, "_value": 1.0}),
+                FakeRecord({"_time": STOP, "_value": 2.0}),
+            ]
+        )
+    ]
+
+    puntos = await repo.energy_series(Variable.POWER_ACTIVE_TOTAL_POS, START, STOP, HOUR)
+
+    assert [p.time for p in puntos] == [START + HOUR, STOP]
+    assert sum(p.value for p in puntos) == 3.0
+
+
+async def test_la_energia_de_un_vacio_no_se_reparte_ni_se_pierde(
+    repo: InfluxRepository, fake_api: FakeQueryApi
+) -> None:
+    """El pico de después del vacío es lo que avanzó el contador, entero.
+
+    InfluxDB no crea ventanas vacías (`createEmpty: false`), así que las horas
+    sin lecturas no existen como puntos y la resta que las cruza abarca todo el
+    silencio. El total del rango sigue siendo correcto: la energía está toda,
+    concentrada en un punto que dice durar menos de lo que abarca.
+    """
+    # Siete horas de silencio entre dos lecturas, y después el ritmo normal.
+    fake_api.tables = [
+        FakeTable(
+            [
+                FakeRecord({"_time": START, "_value": 0.0}),
+                FakeRecord({"_time": START + timedelta(hours=7), "_value": 5.04}),
+                FakeRecord({"_time": START + timedelta(hours=8), "_value": 0.68}),
+            ]
+        )
+    ]
+
+    puntos = await repo.energy_series(
+        Variable.POWER_ACTIVE_TOTAL_POS, START, START + timedelta(hours=8), HOUR
+    )
+
+    # Ni se reparte entre las horas ausentes (sería inventar una curva que nadie
+    # midió) ni se descarta (dejaría el total por debajo del contador).
+    assert [p.value for p in puntos] == [5.04, 0.68]
+    assert sum(p.value for p in puntos) == 5.72
+
+
+@pytest.mark.parametrize("ventana", [timedelta(seconds=1), timedelta(minutes=1), HOUR])
+async def test_el_tamano_de_ventana_no_cambia_el_total(
+    repo: InfluxRepository, fake_api: FakeQueryApi, ventana: timedelta
+) -> None:
+    """La invariante que hace auditable a todo lo demás.
+
+    Lo que el contador avanzó entre dos instantes es un hecho del medidor y no
+    depende de con qué lupa se lo mire. Comprobado también contra los datos
+    reales del cliente: el mismo rango dio 8,55 kWh a un minuto y 8,55 kWh a
+    cinco; el pico solo cambia de ventana, no de tamaño.
+    """
+    fake_api.tables = [
+        FakeTable(
+            [
+                FakeRecord({"_time": START, "_value": 0.0}),
+                FakeRecord({"_time": START + ventana, "_value": 2.5}),
+                FakeRecord({"_time": START + ventana * 2, "_value": 1.5}),
+            ]
+        )
+    ]
+
+    puntos = await repo.energy_series(
+        Variable.POWER_ACTIVE_TOTAL_POS, START, START + ventana * 2, ventana
+    )
+
+    assert sum(p.value for p in puntos) == 4.0

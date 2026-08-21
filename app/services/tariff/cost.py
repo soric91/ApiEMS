@@ -145,8 +145,10 @@ def _totals_by_month(
     months_used: set[str] = set()
     stale_months: set[str] = set()
 
-    months = set(import_by_month) | set(export_by_month) | set(
-        _months_in_range(period_start, period_end)
+    months = (
+        set(import_by_month)
+        | set(export_by_month)
+        | set(_months_in_range(period_start, period_end))
     )
     for month in sorted(months):
         rate, stale = rate_for_month(config, month)

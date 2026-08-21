@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -72,3 +74,55 @@ def test_report_daily_reads_power_series_once(
     ]
     aggregations = [call[2] for call in power_reads]
     assert sorted(aggregations) == ["max", "mean"]
+
+
+@pytest.mark.parametrize(
+    ("bucket", "esperado"),
+    [("hour", timedelta(hours=1)), ("day", timedelta(days=1)), ("week", timedelta(days=7))],
+)
+def test_report_custom_agrupa_las_barras_como_se_le_pida(
+    client: TestClient,
+    fake_influx_repo: FakeInfluxRepository,
+    auth_headers: dict[str, str],
+    bucket: str,
+    esperado: timedelta,
+) -> None:
+    response = client.get(
+        "/api/v1/reports/custom",
+        params={
+            "from": "2026-07-21T05:00:00Z",
+            "to": "2026-08-20T05:00:00Z",
+            "bucket": bucket,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert set(fake_influx_repo.energy_series_every) == {esperado}
+
+
+def test_report_custom_sin_bucket_agrupa_por_dia(
+    client: TestClient, fake_influx_repo: FakeInfluxRepository, auth_headers: dict[str, str]
+) -> None:
+    # 30 días sin pedir nada: barras diarias, no las ~500 que salían de la
+    # ventana de lectura.
+    response = client.get(
+        "/api/v1/reports/custom",
+        params={"from": "2026-07-21T05:00:00Z", "to": "2026-08-20T05:00:00Z"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert set(fake_influx_repo.energy_series_every) == {timedelta(days=1)}
+
+
+def test_report_bucket_invalido_se_rechaza(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get(
+        "/api/v1/reports/custom",
+        params={"from": "2026-07-21T05:00:00Z", "to": "2026-08-20T05:00:00Z", "bucket": "minuto"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422

@@ -151,7 +151,6 @@ class TestItIsScoped:
         assert client.get(RUTA).status_code == 401
 
 
-
 class TestLaVentanaEsConfigurable:
     """Cuánto histórico se recorre para decidir qué variables tienen datos.
 

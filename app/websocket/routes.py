@@ -117,9 +117,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     # rechazar: un navegador que no ve confirmado ninguno de los que ofreció
     # cierra la conexión él mismo, y el código de cierre nunca llega.
     subprotocol = (
-        _BEARER
-        if _BEARER in websocket.headers.get("sec-websocket-protocol", "")
-        else None
+        _BEARER if _BEARER in websocket.headers.get("sec-websocket-protocol", "") else None
     )
 
     devices = await _authorize(websocket)
@@ -226,7 +224,6 @@ async def _handle_message(
     if action == "subscribe":
         await _suscribir(manager, state, websocket, payload)
         return
-
 
     if action == "unsubscribe":
         manager.unsubscribe(websocket)

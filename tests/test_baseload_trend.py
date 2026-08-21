@@ -62,9 +62,7 @@ class TestSinGeneracion:
         repo = FakeInfluxRepository()
         repo.instant_series_points = _dia(START, {0: 200.0, 1: 200.0, 12: 1000.0})
 
-        result = await baseload_trend(
-            repo, START, STOP, TEST_DEVICE_ID, TZ, "consumo", CON_TARIFA
-        )
+        result = await baseload_trend(repo, START, STOP, TEST_DEVICE_ID, TZ, "consumo", CON_TARIFA)
 
         # 200 W x 24 h x 30 días = 144 kWh al mes.
         assert result.monthly_kwh == 144.0
@@ -74,9 +72,7 @@ class TestSinGeneracion:
         repo = FakeInfluxRepository()
         repo.instant_series_points = _dia(START, {0: 200.0, 1: 200.0})
 
-        result = await baseload_trend(
-            repo, START, STOP, TEST_DEVICE_ID, TZ, "consumo", SIN_TARIFA
-        )
+        result = await baseload_trend(repo, START, STOP, TEST_DEVICE_ID, TZ, "consumo", SIN_TARIFA)
 
         assert result.monthly_kwh == 144.0
         assert result.monthly_cost_cop is None
@@ -219,9 +215,7 @@ async def test_una_muestra_negativa_no_cuenta_como_carga() -> None:
     repo = FakeInfluxRepository()
     repo.instant_series_points = _dia(START, {0: -500.0, 1: 200.0, 2: 220.0})
 
-    result = await baseload_trend(
-        repo, START, STOP, TEST_DEVICE_ID, TZ, "consumo", SIN_TARIFA
-    )
+    result = await baseload_trend(repo, START, STOP, TEST_DEVICE_ID, TZ, "consumo", SIN_TARIFA)
 
     assert result.points[0].base_load_w == 200.0
     assert result.points[0].sample_count == 2

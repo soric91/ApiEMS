@@ -120,9 +120,7 @@ def _semillas(vectores: list[list[float]], k: int) -> list[list[float]]:
     su "tipo de día" cambiar sin que cambiara nada."""
     centros = [vectores[0]]
     while len(centros) < k:
-        siguiente = max(
-            vectores, key=lambda v: min(_distancia(v, centro) for centro in centros)
-        )
+        siguiente = max(vectores, key=lambda v: min(_distancia(v, centro) for centro in centros))
         centros.append(siguiente)
     return centros
 

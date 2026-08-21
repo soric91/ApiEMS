@@ -67,9 +67,7 @@ def get_current_identity(
     if identity.must_change_password:
         # El CRM ya limita ese token a sus dos rutas de cambio de contraseña.
         # Repetirlo acá evita que una sesión a medio empezar lea consumo.
-        raise _forbidden(
-            "Tenés que cambiar la contraseña en el CRM antes de ver el consumo"
-        )
+        raise _forbidden("Tenés que cambiar la contraseña en el CRM antes de ver el consumo")
     if identity.client_id is None:
         # La audiencia `monitor` es de clientes; sin empresa no hay nada que
         # mostrar y no existe un caso legítimo que llegue hasta acá.

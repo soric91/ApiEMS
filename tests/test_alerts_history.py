@@ -41,8 +41,7 @@ def _settings() -> Settings:
 
 def _dias(valores: list[float], desde: datetime = PRIMER_DIA) -> list[EnergyPoint]:
     return [
-        EnergyPoint(time=desde + timedelta(days=i), value=valor)
-        for i, valor in enumerate(valores)
+        EnergyPoint(time=desde + timedelta(days=i), value=valor) for i, valor in enumerate(valores)
     ]
 
 

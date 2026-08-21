@@ -30,9 +30,7 @@ class FakeMessage:
 
 
 class _MessagesIterator:
-    def __init__(
-        self, messages: list[FakeMessage], al_agotarse: Exception | None = None
-    ) -> None:
+    def __init__(self, messages: list[FakeMessage], al_agotarse: Exception | None = None) -> None:
         self._messages = messages
         self._al_agotarse = al_agotarse
 
@@ -73,9 +71,7 @@ def _make_fake_client(
 
         @property
         def messages(self) -> _MessagesIterator:
-            return _MessagesIterator(
-                [FakeMessage(PAYLOAD) for _ in range(mensajes)], stream_falla
-            )
+            return _MessagesIterator([FakeMessage(PAYLOAD) for _ in range(mensajes)], stream_falla)
 
     return FakeMqttClient, state
 

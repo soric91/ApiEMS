@@ -102,9 +102,7 @@ class ClientFleet:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "device_ids", frozenset(d.id for d in self.devices))
-        object.__setattr__(
-            self, "device_names", {d.id: d.nombre for d in self.devices}
-        )
+        object.__setattr__(self, "device_names", {d.id: d.nombre for d in self.devices})
 
 
 def _children(node: dict[str, Any], key: str) -> list[dict[str, Any]]:
@@ -198,9 +196,7 @@ def walk_devices(
     return devices, variables, puede_ver
 
 
-def _acumular(
-    destino: dict[str, FleetVariable], crudo: dict[str, Any], device_id: str
-) -> None:
+def _acumular(destino: dict[str, FleetVariable], crudo: dict[str, Any], device_id: str) -> None:
     """Suma una variable del árbol al conjunto, o le agrega un equipo más."""
     nombre = str(crudo.get("nombre", ""))
     if not nombre:
@@ -208,9 +204,7 @@ def _acumular(
 
     existente = destino.get(nombre)
     if existente is not None:
-        destino[nombre] = replace(
-            existente, equipos=existente.equipos | {device_id}
-        )
+        destino[nombre] = replace(existente, equipos=existente.equipos | {device_id})
         return
 
     etiqueta = crudo.get("etiqueta")
@@ -293,7 +287,9 @@ class FleetDirectory:
             fleet,
         )
         logger.info(
-            "fleet_resolved", client_id=client_id, devices=len(fleet.device_ids),
+            "fleet_resolved",
+            client_id=client_id,
+            devices=len(fleet.device_ids),
             variables=len(fleet.variables),
         )
         return fleet

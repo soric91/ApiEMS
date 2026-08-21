@@ -25,7 +25,7 @@ from app.services.influx.cache import (
     cached_instant_series,
 )
 from app.services.kpis.summary import compute_kpis
-from app.services.periods import PeriodBounds, resolve_period
+from app.services.periods import EnergyBucket, PeriodBounds, resolve_period
 from app.services.tariff.cost import compute_cost_from_points
 
 _REPORT_TO_COST_PERIOD: dict[ReportPeriod, CostPeriod] = {
@@ -75,13 +75,16 @@ async def consolidate(
     leídos en vez de volver a consultarlos.
     """
     start, stop, every = bounds.start, bounds.stop, bounds.interval
+    # Las barras van a su propio paso: el `every` de lectura puede ser de
+    # minutos (lo necesita la demanda pico) y eso no se puede dibujar.
+    bucket = bounds.energy_interval
 
     # Dos gathers: asyncio.gather solo tiene overloads tipados por posición
     # hasta 5 awaitables; con más, el tipo de cada resultado colapsa a la
     # unión de todos los tipos devueltos.
     consumption_series, export_series, consumption_total, export_total = await asyncio.gather(
-        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, every, device_id),
-        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, every, device_id),
+        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, bucket, device_id),
+        cached_energy_series(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, bucket, device_id),
         cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_POS, start, stop, device_id),
         cached_energy_total(repo, Variable.POWER_ACTIVE_TOTAL_NEG, start, stop, device_id),
     )
@@ -116,9 +119,7 @@ async def consolidate(
     )
     # El pico se resuelve primero porque el factor de carga lo necesita: media
     # del marco promediado sobre el pico real.
-    max_demand = await asyncio.to_thread(
-        max_demand_result, start, stop, device_id, importing_peak
-    )
+    max_demand = await asyncio.to_thread(max_demand_result, start, stop, device_id, importing_peak)
     load_factor, base_load = await asyncio.gather(
         asyncio.to_thread(
             load_factor_result, start, stop, device_id, importing, max_demand.peak_power_w
@@ -169,9 +170,12 @@ async def build_report(
     tariff: TariffConfig,
     start: datetime | None = None,
     stop: datetime | None = None,
+    bucket: EnergyBucket | None = None,
 ) -> ReportData:
     now = datetime.now(tz=UTC)
-    bounds = resolve_period(report_type, settings.TIMEZONE, now, from_=start, to=stop)
+    bounds = resolve_period(
+        report_type, settings.TIMEZONE, now, from_=start, to=stop, bucket=bucket
+    )
     report = await consolidate(
         repo,
         settings,

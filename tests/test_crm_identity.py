@@ -107,9 +107,7 @@ class TestVerifyingARealSignature:
 
 
 class TestWhatItRefuses:
-    def test_a_token_signed_by_someone_else(
-        self, verifier: CrmIdentityVerifier
-    ) -> None:
+    def test_a_token_signed_by_someone_else(self, verifier: CrmIdentityVerifier) -> None:
         """La prueba de que la firma se comprueba de verdad."""
         impostor = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         pem = impostor.private_bytes(

@@ -18,6 +18,9 @@ class FakeInfluxRepository:
     def __init__(self) -> None:
         self.energy_total_value: float = 5.5
         self.energy_series_points: list[EnergyPoint] = []
+        # Con qué ventana se pidió cada serie de energía: es lo que decide en
+        # cuántas barras se reparte el reporte.
+        self.energy_series_every: list[timedelta] = []
         self.instant_series_points: list[TimeSeriesPoint] = []
         # Muestras por ventana, para la cobertura de datos.
         self.sample_counts_points: list[TimeSeriesPoint] = []
@@ -70,6 +73,7 @@ class FakeInfluxRepository:
         devices: Sequence[str] | None = None,
     ) -> list[EnergyPoint]:
         self.calls.append(("energy_series", counter.value, str(device_id), tuple(devices or ())))
+        self.energy_series_every.append(every)
         return self.energy_series_points_by_counter.get(counter, self.energy_series_points)
 
     async def energy_totals_by_counter(
@@ -171,9 +175,7 @@ class FakeInfluxRepository:
         device_id: str | None = None,
         devices: Sequence[str] | None = None,
     ) -> list[TimeSeriesPoint]:
-        self.calls.append(
-            ("sample_counts", variable.value, str(device_id), tuple(devices or ()))
-        )
+        self.calls.append(("sample_counts", variable.value, str(device_id), tuple(devices or ())))
         return self.sample_counts_points
 
     async def instant_reduce(

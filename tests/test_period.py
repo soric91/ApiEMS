@@ -132,3 +132,80 @@ def test_resolve_period_rejects_inverted_range() -> None:
     to = datetime(2026, 7, 16, 4, 0, 0, tzinfo=UTC)
     with pytest.raises(ValueError):
         resolve_period("day", TZ, NOW, from_=from_, to=to)
+
+
+# --- barras de energía ---------------------------------------------------
+
+
+def test_las_barras_de_un_rango_libre_de_un_mes_van_por_dia() -> None:
+    """Un mes libre se ve como la pestaña Mensual, no en ~500 barras.
+
+    El intervalo de LECTURA sigue siendo fino: de él depende que un pico de
+    tres minutos no se promedie hasta desaparecer en la demanda máxima.
+    """
+    desde = datetime(2026, 7, 21, 5, tzinfo=UTC)
+    hasta = datetime(2026, 8, 20, 5, tzinfo=UTC)
+
+    bounds = resolve_period("custom", TZ, NOW, from_=desde, to=hasta)
+
+    assert bounds.energy_interval == timedelta(days=1)
+    assert bounds.interval < timedelta(hours=2)
+
+
+def test_un_rango_libre_corto_va_por_hora() -> None:
+    desde = datetime(2026, 7, 16, 5, tzinfo=UTC)
+    hasta = datetime(2026, 7, 17, 5, tzinfo=UTC)
+
+    bounds = resolve_period("custom", TZ, NOW, from_=desde, to=hasta)
+
+    assert bounds.energy_interval == timedelta(hours=1)
+
+
+def test_un_rango_libre_de_varios_anios_va_por_semana() -> None:
+    desde = datetime(2024, 1, 1, 5, tzinfo=UTC)
+    hasta = datetime(2026, 1, 1, 5, tzinfo=UTC)
+
+    bounds = resolve_period("custom", TZ, NOW, from_=desde, to=hasta)
+
+    assert bounds.energy_interval == timedelta(days=7)
+
+
+@pytest.mark.parametrize(
+    ("bucket", "esperado"),
+    [("hour", timedelta(hours=1)), ("day", timedelta(days=1)), ("week", timedelta(days=7))],
+)
+def test_el_cliente_puede_pedir_otra_agrupacion(bucket: str, esperado: timedelta) -> None:
+    # Pedir más detalle del que la escalera propone: "estos 30 días, hora por
+    # hora".
+    desde = datetime(2026, 7, 21, 5, tzinfo=UTC)
+    hasta = datetime(2026, 8, 20, 5, tzinfo=UTC)
+
+    bounds = resolve_period("custom", TZ, NOW, from_=desde, to=hasta, bucket=bucket)  # type: ignore[arg-type]
+
+    assert bounds.energy_interval == esperado
+
+
+def test_la_agrupacion_elegida_no_toca_el_intervalo_de_lectura() -> None:
+    desde = datetime(2026, 7, 21, 5, tzinfo=UTC)
+    hasta = datetime(2026, 8, 20, 5, tzinfo=UTC)
+
+    fino = resolve_period("custom", TZ, NOW, from_=desde, to=hasta)
+    grueso = resolve_period("custom", TZ, NOW, from_=desde, to=hasta, bucket="week")
+
+    # La demanda pico se sigue leyendo igual de fino: la agrupación es de las
+    # barras, no de lo que se mide.
+    assert grueso.interval == fino.interval
+
+
+def test_los_periodos_fijos_conservan_su_agrupacion() -> None:
+    assert resolve_period("day", TZ, NOW).energy_interval == timedelta(hours=1)
+    assert resolve_period("week", TZ, NOW).energy_interval == timedelta(days=1)
+    assert resolve_period("month", TZ, NOW).energy_interval == timedelta(days=1)
+    assert resolve_period("yearly", TZ, NOW).energy_interval == timedelta(days=1)
+
+
+def test_un_periodo_fijo_tambien_acepta_otra_agrupacion() -> None:
+    bounds = resolve_period("monthly", TZ, NOW, bucket="hour")
+
+    assert bounds.energy_interval == timedelta(hours=1)
+    assert bounds.interval == timedelta(days=1)

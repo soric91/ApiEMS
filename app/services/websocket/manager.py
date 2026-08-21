@@ -63,9 +63,7 @@ class ConnectionManager:
         await websocket.accept(subprotocol=subprotocol)
         self._subscriptions[websocket] = None
         self._visible[websocket] = devices
-        logger.info(
-            "ws_connected", connections=self.connection_count, devices=len(devices)
-        )
+        logger.info("ws_connected", connections=self.connection_count, devices=len(devices))
 
     def disconnect(self, websocket: WebSocket) -> None:
         self._subscriptions.pop(websocket, None)

@@ -63,9 +63,7 @@ class TestUnGatewayCaido:
         y por lo que este camino existe.
         """
         equipos, _, _ = walk_devices(
-            _arbol(
-                _sede("Planta Norte", _gateway("GW-0001", _equipo("Medidor"), estado="offline"))
-            )
+            _arbol(_sede("Planta Norte", _gateway("GW-0001", _equipo("Medidor"), estado="offline")))
         )
 
         assert len(equipos) == 1

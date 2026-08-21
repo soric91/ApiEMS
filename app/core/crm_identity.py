@@ -106,9 +106,7 @@ class CrmIdentityVerifier:
         return CrmIdentity(
             user_id=str(claims["sub"]),
             role=str(claims.get("role", "")),
-            client_id=(
-                str(claims["client_id"]) if claims.get("client_id") else None
-            ),
+            client_id=(str(claims["client_id"]) if claims.get("client_id") else None),
             scope=str(claims.get("scope", "full")),
             impersonated=claims.get("impersonated") is True,
         )

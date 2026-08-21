@@ -57,9 +57,7 @@ def _curva(
         fraccion = i / (salida - 1) if salida > 1 else 0.0
         indice = min(total - 1, round(fraccion * (total - 1)))
         curva.append(
-            LoadDurationPoint(
-                time_fraction=round(fraccion, 4), power_w=round(ordenados[indice], 2)
-            )
+            LoadDurationPoint(time_fraction=round(fraccion, 4), power_w=round(ordenados[indice], 2))
         )
     return curva, ordenados
 

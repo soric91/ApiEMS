@@ -67,9 +67,7 @@ async def _series(
         used_aggregation = Aggregation.LAST
     else:
         raw = (
-            await cached_instant_series(
-                repo, variable, from_, to, every, aggregation, device_id
-            )
+            await cached_instant_series(repo, variable, from_, to, every, aggregation, device_id)
             if use_cache
             else await repo.instant_series(variable, from_, to, every, aggregation, device_id)
         )

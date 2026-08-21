@@ -297,9 +297,7 @@ class TestTheTokenIsNotInTheUrl:
     """
 
     def test_the_subprotocol_authenticates(self, client: TestClient) -> None:
-        with client.websocket_connect(
-            "/ws", subprotocols=["bearer", TEST_TOKEN]
-        ) as ws:
+        with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
             ws.send_json({"action": "ping"})
 
             assert ws.receive_json()["type"] == "pong"
@@ -330,20 +328,14 @@ class TestTheTokenIsNotInTheUrl:
 
         assert espia.subprotocol == "bearer"
 
-    def test_a_bad_token_in_the_subprotocol_is_rejected(
-        self, client: TestClient
-    ) -> None:
-        with client.websocket_connect(
-            "/ws", subprotocols=["bearer", "no-es-un-token"]
-        ) as ws:
+    def test_a_bad_token_in_the_subprotocol_is_rejected(self, client: TestClient) -> None:
+        with client.websocket_connect("/ws", subprotocols=["bearer", "no-es-un-token"]) as ws:
             with pytest.raises(WebSocketDisconnect) as caught:
                 ws.receive_json()
 
             assert caught.value.code == status.WS_1008_POLICY_VIOLATION
 
-    def test_the_subprotocol_without_a_token_is_rejected(
-        self, client: TestClient
-    ) -> None:
+    def test_the_subprotocol_without_a_token_is_rejected(self, client: TestClient) -> None:
         """Ofrecer `bearer` y nada más no es una credencial."""
         with client.websocket_connect("/ws", subprotocols=["bearer"]) as ws:
             with pytest.raises(WebSocketDisconnect) as caught:
@@ -390,9 +382,7 @@ def test_una_suscripcion_con_equipo_solo_recibe_ese_equipo(
     manager: ConnectionManager = app.state.ws_manager
 
     with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
-        ws.send_json(
-            {"action": "subscribe", "variable": "TotW", "device_id": TEST_DEVICE_ID}
-        )
+        ws.send_json({"action": "subscribe", "variable": "TotW", "device_id": TEST_DEVICE_ID})
         assert ws.receive_json()["type"] == "subscribed"
 
         # El ajeno primero: si el filtro no existiera, este llegaría y el test
@@ -445,9 +435,7 @@ def test_el_valor_actual_inmediato_tambien_se_acota(
     state.update(_lectura(TEST_DEVICE_ID, 42.0))
 
     with client.websocket_connect("/ws", subprotocols=["bearer", TEST_TOKEN]) as ws:
-        ws.send_json(
-            {"action": "subscribe", "variable": "TotW", "device_id": TEST_DEVICE_ID}
-        )
+        ws.send_json({"action": "subscribe", "variable": "TotW", "device_id": TEST_DEVICE_ID})
         assert ws.receive_json()["type"] == "subscribed"
 
         actual = ws.receive_json()

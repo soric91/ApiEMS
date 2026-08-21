@@ -76,9 +76,7 @@ class TestElPronostico:
 
         assert result.method == "ewma_por_tipo_de_dia_y_hora"
         assert result.target == "import_kwh"
-        de_las_19 = [
-            p for p in result.points if (p.time - timedelta(hours=5)).hour == 19
-        ]
+        de_las_19 = [p for p in result.points if (p.time - timedelta(hours=5)).hour == 19]
         assert de_las_19
         assert all(abs(p.kwh - 3.0) < 0.01 for p in de_las_19)
 
@@ -100,9 +98,7 @@ class TestElPronostico:
         puntos = _historia(28, {19: 3.0})
         for i, punto in enumerate(puntos):
             if (punto.time - timedelta(hours=5)).hour == 19:
-                puntos[i] = EnergyPoint(
-                    time=punto.time, value=2.0 if i % 2 == 0 else 4.0
-                )
+                puntos[i] = EnergyPoint(time=punto.time, value=2.0 if i % 2 == 0 else 4.0)
         repo.energy_series_points_by_counter = {Variable.POWER_ACTIVE_TOTAL_POS: puntos}
 
         result = await power_forecast(repo, _settings(), None, 24, AHORA)

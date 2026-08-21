@@ -129,7 +129,7 @@ class TestLosGrupos:
 
 class TestCuandoElGrupoEsChico:
     async def test_con_dos_sedes_no_publica_posicion(self) -> None:
-        """"Estás por encima de la mediana" con dos sedes solo dice "consumes
+        """ "Estás por encima de la mediana" con dos sedes solo dice "consumes
         más que la otra"."""
         devices = (_device("a", "Planta"), _device("b", "Bodega"))
         repo = _RepoPorEquipo({"a": 600.0, "b": 300.0})

@@ -173,9 +173,7 @@ async def analytics_day_archetypes(
     silueta obtenida: esta instalación consume igual todos los días y decir lo
     contrario sería inventar una frontera.
     """
-    return ApiResponse(
-        data=await day_archetypes(repo, device_id, settings.TIMEZONE, days)
-    )
+    return ApiResponse(data=await day_archetypes(repo, device_id, settings.TIMEZONE, days))
 
 
 @router.get(
@@ -202,9 +200,7 @@ async def analytics_load_duration(
     dibujo no cambia y la respuesta no pesa.
     """
     bounds = _resolve_range(settings, from_, to)
-    return ApiResponse(
-        data=await load_duration(repo, bounds.start, bounds.stop, device_id, points)
-    )
+    return ApiResponse(data=await load_duration(repo, bounds.start, bounds.stop, device_id, points))
 
 
 @router.get(

@@ -30,9 +30,7 @@ def _pedir(app: Any, fleet: Any, *, impersonated: bool) -> Any:
 
 
 class TestTheConsumptionFlag:
-    def test_a_client_is_still_blocked_when_it_is_off(
-        self, app: Any, fleet: Any
-    ) -> None:
+    def test_a_client_is_still_blocked_when_it_is_off(self, app: Any, fleet: Any) -> None:
         """La regla no se aflojó: sigue siendo lo que ve el cliente."""
         apagada = replace_flag(fleet, False)
 
@@ -57,4 +55,3 @@ class TestTheConsumptionFlag:
         response = _pedir(app, fleet, impersonated=False)
 
         assert response.status_code == status.HTTP_200_OK
-

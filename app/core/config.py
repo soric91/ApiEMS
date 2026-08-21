@@ -96,7 +96,6 @@ class Settings(BaseSettings):
     # qué rango de datos corresponde a "hoy", "esta semana", etc.
     TIMEZONE: str = "America/Bogota"
 
-
     # --- CRMBackend (Fase 5, prompt_arquitectura_v2.md) ---
     # Credencial máquina-a-máquina real: POST /api/v1/service/token con
     # client_id/client_secret devuelve un token de servicio (permiso

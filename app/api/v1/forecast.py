@@ -76,6 +76,4 @@ async def forecast_power(
     Con ese número a la vista se puede cambiar de método —o traer el modelo
     entrenado— y demostrar que mejora, en vez de suponerlo.
     """
-    return ApiResponse(
-        data=await power_forecast(repo, settings, device_id, horizon_hours)
-    )
+    return ApiResponse(data=await power_forecast(repo, settings, device_id, horizon_hours))

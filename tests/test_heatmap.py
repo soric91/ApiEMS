@@ -37,9 +37,7 @@ class TestLaCuadricula:
             Variable.POWER_ACTIVE_TOTAL_NEG: [],
         }
 
-        result = await heatmap(
-            repo, START, STOP, None, "import", SIN_TARIFA, "America/Bogota"
-        )
+        result = await heatmap(repo, START, STOP, None, "import", SIN_TARIFA, "America/Bogota")
 
         assert result.dates == ["2026-08-10"]
         assert result.values[0][21] == 1.5
@@ -56,9 +54,7 @@ class TestLaCuadricula:
             Variable.POWER_ACTIVE_TOTAL_NEG: [],
         }
 
-        result = await heatmap(
-            repo, START, STOP, None, "import", SIN_TARIFA, "America/Bogota"
-        )
+        result = await heatmap(repo, START, STOP, None, "import", SIN_TARIFA, "America/Bogota")
 
         fila = result.values[0]
         assert fila[5] == 2.0  # 10:00 UTC = 05:00 Bogotá
@@ -71,9 +67,7 @@ class TestLaCuadricula:
             Variable.POWER_ACTIVE_TOTAL_NEG: [],
         }
 
-        result = await heatmap(
-            repo, START, STOP, None, "import", SIN_TARIFA, "America/Bogota"
-        )
+        result = await heatmap(repo, START, STOP, None, "import", SIN_TARIFA, "America/Bogota")
 
         assert result.dates == []
         assert result.values == []

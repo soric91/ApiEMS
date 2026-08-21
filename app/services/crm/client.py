@@ -65,9 +65,7 @@ class CrmClient:
             json={"client_id": self._client_id, "client_secret": self._client_secret},
         )
         if response.status_code != _HTTP_OK:
-            raise CrmClientError(
-                f"token de servicio CRMBackend falló: HTTP {response.status_code}"
-            )
+            raise CrmClientError(f"token de servicio CRMBackend falló: HTTP {response.status_code}")
         body = response.json()
         token = body["access_token"]
         expires_in = body["expires_in"]
@@ -136,9 +134,7 @@ class CrmClient:
         extra_headers = {"If-None-Match": cached[0]} if cached is not None else None
 
         async with self._new_client() as client:
-            response = await self._authorized_get(
-                client, "/api/v1/fleet", params, extra_headers
-            )
+            response = await self._authorized_get(client, "/api/v1/fleet", params, extra_headers)
             if response.status_code == _HTTP_NOT_MODIFIED:
                 if cached is None:
                     raise CrmClientError(

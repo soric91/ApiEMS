@@ -119,8 +119,7 @@ class TestDosEmpresasNoCompartenCache:
         # se deja anotado en vez de dar un falso verde silencioso.
         reutilizada = id(repo_b) == direccion_a
         assert valor_a != valor_b, (
-            "La empresa B recibió el valor cacheado de A"
-            f" (dirección reutilizada: {reutilizada})"
+            f"La empresa B recibió el valor cacheado de A (dirección reutilizada: {reutilizada})"
         )
 
     async def test_la_misma_empresa_si_reusa_el_cache(self) -> None:
@@ -157,12 +156,8 @@ class TestLaIdentidadDescribeLaFlota:
     def test_el_orden_de_los_equipos_no_cambia_la_identidad(self) -> None:
         """La flota llega como conjunto; si el orden alterara la clave, el mismo
         cliente tendría entradas distintas según el capricho del `frozenset`."""
-        uno = ScopedInfluxRepository(
-            cast(InfluxRepository, _Interior()), frozenset({"a", "b"})
-        )
-        otro = ScopedInfluxRepository(
-            cast(InfluxRepository, _Interior()), frozenset({"b", "a"})
-        )
+        uno = ScopedInfluxRepository(cast(InfluxRepository, _Interior()), frozenset({"a", "b"}))
+        otro = ScopedInfluxRepository(cast(InfluxRepository, _Interior()), frozenset({"b", "a"}))
 
         assert uno.cache_identity == otro.cache_identity
 

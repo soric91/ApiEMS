@@ -222,9 +222,7 @@ async def bill_forecast(
         return base
 
     consumo_por_tipo = _por_tipo(dias_consumo, tz_name)
-    proyectado, p10, p90 = _proyectar(
-        consumo_mtd, consumo_por_tipo, reference, month_end, tz_name
-    )
+    proyectado, p10, p90 = _proyectar(consumo_mtd, consumo_por_tipo, reference, month_end, tz_name)
     export_por_tipo = _por_tipo(dias_export, tz_name)
     export_proyectado = (
         _proyectar(export_mtd, export_por_tipo, reference, month_end, tz_name)[0]

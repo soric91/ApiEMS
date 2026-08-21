@@ -99,9 +99,7 @@ class FakeIdentityVerifier:
     lado que firma.
     """
 
-    def __init__(
-        self, client_id: str = TEST_CLIENT_ID, *, impersonated: bool = False
-    ) -> None:
+    def __init__(self, client_id: str = TEST_CLIENT_ID, *, impersonated: bool = False) -> None:
         self.client_id = client_id
         self.impersonated = impersonated
 

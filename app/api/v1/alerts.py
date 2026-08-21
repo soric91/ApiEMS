@@ -2,6 +2,7 @@
 sobre datos históricos reales. Ver app/services/analytics/anomaly.py.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, cast
 
@@ -11,10 +12,10 @@ from app.core.config import Settings, get_settings
 from app.dependencies.auth import CurrentFleet
 from app.dependencies.influx import get_influx_repository
 from app.repositories.scoped import ScopedInfluxRepository
-from app.schemas.alerts import AlertsHistory, AlertsResponse
+from app.schemas.alerts import Alert, AlertsHistory, AlertsResponse
 from app.schemas.common import ApiResponse
 from app.services.alerts.detector import check_daily_total
-from app.services.alerts.history import alerts_history
+from app.services.alerts.history import alerts_history, hourly_anomalies
 from app.services.alerts.state import AlertsState
 
 router = APIRouter(prefix="/alerts", tags=["Alerts"])
@@ -23,6 +24,16 @@ router = APIRouter(prefix="/alerts", tags=["Alerts"])
 # el que se arman las bandas (`ALERTS_BASELINE_DAYS`): pedir más días de los
 # que sostienen la banda daría veredictos con menos respaldo del que aparentan.
 HISTORY_LOOKBACK_DAYS = 30
+
+#: Cuántos días de alertas horarias se reconstruyen para la campanita. Una
+#: semana es lo que alguien revisa hacia atrás cuando vuelve el lunes; más allá
+#: la pregunta ya es "qué pasó ese día" y para eso está `/alerts/history`.
+RECIENTES_DIAS = 7
+
+#: Cuántas alertas de memoria se miran antes de filtrar por flota. La lista
+#: guarda las de todos los clientes del proceso, así que pedir solo `limit`
+#: podría devolver menos de las que le tocan a este.
+MAX_EN_MEMORIA = 200
 
 RepoDep = Annotated[ScopedInfluxRepository, Depends(get_influx_repository)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -79,11 +90,67 @@ async def alerts(
     device_id: str | None = None,
     limit: int = 50,
 ) -> ApiResponse[AlertsResponse]:
-    """`recent`: alertas horarias generadas en tiempo real (RAM, se pierden
-    al reiniciar el proceso — igual que el resto del estado en memoria).
+    """`recent`: las alertas horarias de los últimos días.
+
+    Salen de dos sitios que se complementan. Las de esta sesión están en RAM,
+    con el segundo exacto en que se dispararon; las anteriores se RECALCULAN
+    sobre InfluxDB con la misma función que evalúa la lectura en vivo. Antes
+    solo existían las primeras, así que reiniciar el proceso borraba los avisos
+    del cliente aunque los datos que los provocaron siguieran guardados.
+
+    La reconstrucción exige `device_id`: una alerta sin equipo al que atribuirla
+    no sirve para nada, y recorrer la flota entera sería un par de consultas por
+    equipo en cada visita.
+
+    Cuando una hora aparece por los dos caminos gana la de memoria: es la que
+    de verdad se emitió, con su valor y su hora exactos.
+
     `daily_total`: comparación bajo demanda del último día completo (ayer)
     contra su banda histórica por día de semana; `null` si no hay suficiente
     historial o el consumo de ayer estuvo dentro de lo esperado.
     """
-    daily = await check_daily_total(repo, settings, device_id)
-    return ApiResponse(data=AlertsResponse(recent=state.recent(limit), daily_total=daily))
+    # La reconstrucción es POR MEDIDOR: una alerta sin equipo no se puede
+    # atribuir, y reconstruir la flota entera sería un par de consultas por
+    # cada equipo en cada visita al panel. Sin `device_id` —que el panel
+    # siempre manda, porque siempre hay uno seleccionado— quedan solo las de
+    # esta sesión.
+    daily, reconstruidas = await asyncio.gather(
+        check_daily_total(repo, settings, device_id),
+        hourly_anomalies(repo, settings, device_id, RECIENTES_DIAS)
+        if device_id is not None
+        else _sin_reconstruir(),
+    )
+
+    # La lista en memoria es de TODA la flota del proceso: sin acotarla, un
+    # cliente vería las alertas de los medidores de otro.
+    en_memoria = [
+        a
+        for a in state.recent(limit=MAX_EN_MEMORIA)
+        if a.device_id in fleet.device_ids and (device_id is None or a.device_id == device_id)
+    ]
+
+    return ApiResponse(
+        data=AlertsResponse(recent=_unidas(en_memoria, reconstruidas, limit), daily_total=daily)
+    )
+
+
+async def _sin_reconstruir() -> list[Alert]:
+    return []
+
+
+def _hora_de(alerta: Alert) -> tuple[str | None, int]:
+    """La identidad de una alerta horaria: qué medidor y qué hora concreta."""
+    return (alerta.device_id, int(alerta.timestamp.timestamp() // 3600))
+
+
+def _unidas(en_memoria: list[Alert], reconstruidas: list[Alert], limit: int) -> list[Alert]:
+    """Las dos fuentes en una sola lista, sin repetir la misma hora.
+
+    Manda la de memoria: es la alerta tal como se emitió. La reconstruida es
+    una reconstrucción fiel del veredicto, pero con el pico de la hora en vez
+    del valor exacto que disparó el aviso.
+    """
+    vistas = {_hora_de(a) for a in en_memoria}
+    unidas = en_memoria + [a for a in reconstruidas if _hora_de(a) not in vistas]
+    unidas.sort(key=lambda a: a.timestamp, reverse=True)
+    return unidas[:limit]

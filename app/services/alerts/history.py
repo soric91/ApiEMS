@@ -29,17 +29,17 @@ Dos cosas distintas se reportan:
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.core.config import Settings
-from app.models.variables import Variable
+from app.models.variables import Aggregation, Variable
 from app.repositories.influx import InfluxDataSource
 from app.schemas.alerts import Alert, AlertsHistory, LevelShift
 from app.schemas.influx import EnergyPoint
-from app.services.alerts.detector import daily_alert
-from app.services.analytics.anomaly import weekday_total_baseline
-from app.utils.period import start_of_day
+from app.services.alerts.detector import daily_alert, hourly_alert
+from app.services.analytics.anomaly import hourly_power_baseline, weekday_total_baseline
+from app.utils.period import local_hour, start_of_day
 
 _DAY = timedelta(days=1)
 # Mínimo de valores para poder mirar la variación de un día al siguiente.
@@ -228,3 +228,61 @@ async def alerts_history(
         anomalies=sorted(anomalias, key=lambda a: a.timestamp, reverse=True),
         level_shift=_level_shift(dias, tz_name),
     )
+
+
+# ---------------------------------------------------------------------------
+# Las alertas horarias, reconstruidas
+# ---------------------------------------------------------------------------
+#
+# La campanita mostraba solo lo que quedó en RAM desde el último arranque: al
+# reiniciar el proceso el cliente perdía sus avisos aunque los datos que los
+# provocaron siguieran en InfluxDB.
+#
+# Se recalculan, no se guardan, por lo mismo que el historial diario: la
+# potencia por hora y su banda ya están; guardar además el veredicto sería un
+# segundo origen de verdad. Y el veredicto sale de `hourly_alert`, la misma
+# función que evalúa la lectura en vivo — el aviso de ahora y el de la semana
+# pasada dicen la misma frase de la misma hora.
+#
+# Una diferencia honesta con la alerta en vivo: esta mira el MÁXIMO de cada
+# hora en vez de cada lectura suelta. En vivo alcanza con que una muestra se
+# pase de la banda para avisar, así que el máximo es lo que reproduce ese
+# veredicto; el promedio escondería el pico que disparó el aviso original.
+
+
+async def hourly_anomalies(
+    repo: InfluxDataSource,
+    settings: Settings,
+    device_id: str | None,
+    days: int,
+    now: datetime | None = None,
+) -> list[Alert]:
+    """Las horas anómalas de los últimos `days` días, de la más reciente atrás."""
+    stop = now or datetime.now(tz=UTC)
+    start = stop - timedelta(days=days)
+
+    bands = await hourly_power_baseline(repo, device_id, settings.TIMEZONE, days)
+    if not bands:
+        return []
+
+    picos = await repo.instant_series(
+        Variable.POWER_ACTIVE_INST_TOTAL,
+        start,
+        stop,
+        timedelta(hours=1),
+        Aggregation.MAX,
+        device_id,
+    )
+
+    alertas: list[Alert] = []
+    for punto in picos:
+        hora = local_hour(punto.time, settings.TIMEZONE)
+        banda = bands.get(hora)
+        if banda is None:
+            continue
+        alerta = hourly_alert(device_id, hora, punto.value, banda, punto.time)
+        if alerta is not None:
+            alertas.append(alerta)
+
+    alertas.sort(key=lambda a: a.timestamp, reverse=True)
+    return alertas

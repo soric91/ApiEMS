@@ -51,6 +51,28 @@ async def check_hourly(
     if band is None:
         return None
 
+    return hourly_alert(device_id, hour, value, band, reading.timestamp)
+
+
+def hourly_alert(
+    device_id: str | None,
+    hour: int,
+    value: float,
+    band: BandStats,
+    timestamp: datetime,
+) -> Alert | None:
+    """La alerta de UNA hora contra su banda, sin decidir de dónde salió el valor.
+
+    Pública y separada de quién trae los datos, por la misma razón que
+    `daily_alert`: la usan la evaluación en vivo de cada lectura MQTT y la
+    reconstrucción del historial horario. Tenerla en un solo sitio es lo que
+    hace que la campanita y el historial digan la MISMA frase de la misma hora.
+    """
+    # Exportar excedente es siempre favorable: no se alerta por más que se
+    # aleje de lo típico.
+    if value <= 0:
+        return None
+
     sign_flip = band.p90 < 0
     severity = "high" if sign_flip else classify(value, band)
     if severity is None:
@@ -79,7 +101,7 @@ async def check_hourly(
         expected_low=band.p10,
         expected_high=band.p90,
         bucket=hour,
-        timestamp=reading.timestamp,
+        timestamp=timestamp,
         message=message,
     )
 

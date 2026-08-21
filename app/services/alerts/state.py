@@ -1,8 +1,14 @@
 """Historial de alertas recientes, en memoria (mismo patrón que RealtimeState).
 
 Se pierde al reiniciar el proceso — igual que el resto del estado en RAM del
-proyecto. Si en el futuro hace falta persistencia entre reinicios, es el
-punto a extender (ej. escribir a InfluxDB como measurement nuevo).
+proyecto. Ya no importa tanto: las alertas horarias anteriores al arranque se
+RECONSTRUYEN desde InfluxDB con la misma función que las evalúa en vivo (ver
+`hourly_anomalies` en `app/services/alerts/history.py`), así que el cliente
+sigue viendo sus avisos y sus informes después de un reinicio.
+
+Lo que esta lista aporta y la reconstrucción no puede: el valor y el segundo
+exactos en que se disparó la alerta. La reconstruida trabaja con el pico de la
+hora.
 """
 
 from collections import deque

@@ -7,14 +7,15 @@ from app.models.variables import Variable
 from app.schemas.alerts import Alert
 from app.schemas.influx import EnergyPoint
 from app.services.alerts.state import AlertsState
+from tests.conftest import TEST_DEVICE_ID
 from tests.fakes import FakeInfluxRepository
 
 
-def _alert() -> Alert:
+def _alert(device_id: str = TEST_DEVICE_ID) -> Alert:
     return Alert(
         kind="hourly_power",
         severity="high",
-        device_id="11",
+        device_id=device_id,
         variable="TotW",
         value=999.0,
         expected_low=10.0,
@@ -40,6 +41,34 @@ def test_alerts_returns_recent_from_state(
     body = response.json()["data"]
     assert len(body["recent"]) == 1
     assert body["recent"][0]["severity"] == "high"
+
+
+def test_alerts_no_muestra_las_de_otro_cliente(
+    client: TestClient, app: FastAPI, auth_headers: dict[str, str]
+) -> None:
+    """La lista en memoria es de toda la flota del proceso.
+
+    Sin acotarla por la flota de quien pregunta, un cliente veía las alertas de
+    los medidores de otro: qué equipo, cuántos vatios y a qué hora.
+    """
+    state: AlertsState = app.state.alerts_state
+    state.add_if_due(_alert(device_id="medidor-de-otra-empresa"))
+
+    response = client.get("/api/v1/alerts", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["data"]["recent"] == []
+
+
+def test_alerts_filtra_por_medidor_cuando_se_pide(
+    client: TestClient, app: FastAPI, auth_headers: dict[str, str]
+) -> None:
+    state: AlertsState = app.state.alerts_state
+    state.add_if_due(_alert())
+
+    otro = client.get("/api/v1/alerts", params={"device_id": "otro"}, headers=auth_headers)
+
+    assert otro.json()["data"]["recent"] == []
 
 
 def test_alerts_daily_total_null_with_degenerate_band(
